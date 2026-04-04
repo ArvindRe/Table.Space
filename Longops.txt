@@ -1,0 +1,15 @@
+--longops
+SELECT b.username, a.sid, b.opname, b.target,
+        round(b.SOFAR*100/b.TOTALWORK,0)  as "%DONE", b.TIME_REMAINING,
+        to_char(b.start_time,'YYYY/MM/DD HH24:MI:SS') start_time
+    FROM gv$session_longops b, gv$session a
+    WHERE a.sid = b.sid  and totalwork<>0     ORDER BY 5 asc;
+
+        SELECT sl.sid, sl.serial#, sl.sofar, sl.totalwork, dp.owner_name, dp.state, dp.job_mode
+        FROM gv$session_longops sl, gv$datapump_job dp
+        WHERE sl.opname = dp.job_name
+        AND sl.sofar != sl.totalwork;
+
+        SELECT sl.sid, sl.serial#, sl.sofar, sl.MESSAGE,sl.totalwork, dp.owner_name, dp.state, dp.job_mode
+FROM gv$session_longops sl, gv$datapump_job dp
+WHERE sl.opname = dp.job_name;

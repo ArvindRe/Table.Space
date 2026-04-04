@@ -1,0 +1,21 @@
+select * from dba_users where username='';
+
+
+--------invalid password --------
+
+select userid, username, os_user, host_name, client_program_name, to_char(event_timestamp, 'MM/DD/YYYY HH24:MI:SS') event_timestamp,
+DECODE(return_code, 1017, 'Invalid Username/Password', 28000, 'Account is locked', 0, 'Success', return_code) ERROR, terminal, action, SQL_TEXT, SQL_BINDS
+from gv$unified_audit_trail
+--AUDSYS.AUD$UNIFIED
+where event_timestamp > sysdate-4 and return_code=1017
+    and userid = 'BMCCM_EM9_OWNER'
+order by event_timestamp desc ;
+
+
+select userid, username, os_user, host_name, client_program_name, to_char(event_timestamp, 'MM/DD/YYYY HH24:MI:SS') event_timestamp,
+DECODE(return_code, 1017, 'Invalid Username/Password', 28000, 'Account is locked', 0, 'Success', return_code) ERROR, terminal, action, SQL_TEXT, SQL_BINDS
+from --gv$unified_audit_trail
+AUDSYS.AUD$UNIFIED
+where event_timestamp > sysdate-4 and return_code=1017
+    and userid = 'BMCCM_EM9_OWNER'
+order by event_timestamp desc ;
