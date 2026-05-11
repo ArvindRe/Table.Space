@@ -11,9 +11,9 @@ DB_NAME="${1:-}"
 USERNAME="${2:-dbsnmp}"
 
 case "${USERNAME,,}" in
-    dbsnmp)      echo 'DBsnmp123' ;;
-    system)      echo 'SentinelDBA1' ;;
-    aregukumar)  echo 'SentinelDBA1' ;;
-    dptest)      echo 'DPTest123' ;;
+    dbsnmp)      echo '<dbsnmp-password>' ;;
+    system)      echo '<system-password>' ;;
+    app_user)    echo '<app-user-password>' ;;
+    dptest)      echo '<dptest-password>' ;;
     *)           echo "ERROR: no password configured for user '${USERNAME}'" >&2; exit 1 ;;
 esac

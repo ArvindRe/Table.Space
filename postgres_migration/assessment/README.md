@@ -145,7 +145,7 @@ npm run assess -- --config config.yaml --output html
 
 ## Demo
 
-The following output was produced by running the tool against a `MIGRATE_DEMO` schema loaded onto two local Docker instances — Oracle 23c Free (FREEPDB1, port 1521) and Oracle 21c XE (XEPDB1, port 1522). The schema contains 6 tables, 4 views, 3 procedures, 1 package, 2 triggers, and 8 sequences, with Oracle-specific constructs including `DBMS_OUTPUT`, an autonomous transaction pragma, `DECODE`, `BULK COLLECT`/`FORALL`, and complex `:NEW`/`:OLD` trigger logic.
+The following output was produced by running the tool against an `APP_SCHEMA` schema loaded onto two local Docker instances — Oracle 23c (SOURCEPDB1) and Oracle 21c (SOURCEPDB2). The schema contains 6 tables, 4 views, 3 procedures, 1 package, 2 triggers, and 8 sequences, with Oracle-specific constructs including `DBMS_OUTPUT`, an autonomous transaction pragma, `DECODE`, `BULK COLLECT`/`FORALL`, and complex `:NEW`/`:OLD` trigger logic.
 
 ### Console output
 
@@ -156,9 +156,9 @@ npm run assess -- --config config.yaml
 ║           ORA-Migrate-Assess v1.0 — Assessment Report           ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-Connecting to localhost:1521/FREEPDB1 ... connected
+Connecting to db-host-1:1521/SOURCEPDB1 ... connected
 
-Schema: MIGRATE_DEMO
+Schema: APP_SCHEMA
 ────────────────────────────────────────────────────
   Inspecting schema objects             ... ✓
   tables: 6 | views: 4 | procedures: 3 | functions: 0 | triggers: 2 | packages: 1 | sequences: 8
@@ -182,7 +182,7 @@ RECOMMENDATION: EDB Migration Portal
 CDC COMPLEMENT:  AWS Database Migration Service (DMS)
 ESTIMATED EFFORT: 3–6 weeks
 
-✓ Saved: reports/MIGRATE_DEMO_assessment_2026-05-11.md
+✓ Saved: reports/APP_SCHEMA_assessment_2026-05-11.md
 ```
 
 ### Full Markdown report
@@ -191,7 +191,7 @@ The tool saves a detailed report to `reports/`. Below is the full output for the
 
 ---
 
-**Schema:** MIGRATE_DEMO  |  **Generated:** 2026-05-11 07:59:24
+**Schema:** APP_SCHEMA  |  **Generated:** 2026-05-11 07:59:24
 
 #### Schema Inventory
 ```
