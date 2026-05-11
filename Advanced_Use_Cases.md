@@ -935,17 +935,37 @@ Data Pump assigns one worker per table, and if the object exceeds the parallel t
 
 **Always convert LOBs to SecureFile during import.** SecureFile supports full parallel access; importing as BasicFile locks you back into the same parallelism constraint.
 
+#### Pre-import: system configuration
+
+Apply before starting any import job. Revert all settings post-import.
+
+```sql
+-- Reduces CPU overhead during bulk load; run VALIDATE CHECK LOGICAL DATABASE afterward
+ALTER SYSTEM SET DB_BLOCK_CHECKING = FALSE SCOPE=BOTH;
+ALTER SYSTEM SET DB_BLOCK_CHECKSUM = FALSE SCOPE=BOTH;
+
+-- Size streams pool — Data Pump uses Advanced Queueing internally
+ALTER SYSTEM SET streams_pool_size=2G SCOPE=MEMORY;
+
+-- Avoids writing every change to the redo log; re-enable post-import
+ALTER DATABASE NO FORCE LOGGING;
+```
+
 #### Import 1: first dump (creates table + converts LOB storage)
 
 ```bash
 impdp db_user/$$$$$$$$@TARGET_PDB \
     dumpfile=expdp_LOB_TABLE_0_%U.dmp \
     logfile=imp_lob_0.log \
-    transform=lob_storage:securefile \
-    parallel=4
+    metrics=Y \
+    logtime=ALL \
+    transform=lob_storage:securefile,DISABLE_ARCHIVE_LOGGING:Y \
+    parallel=32 \
+    data_options=TRUST_EXISTING_TABLE_PARTITIONS \
+    exclude=GRANT,REF_CONSTRAINT,TRIGGER,INDEX,CONSTRAINT
 ```
 
-`transform=lob_storage:securefile` converts BasicFile LOBs to SecureFile on the fly. This first job also creates the table itself.
+`transform=lob_storage:securefile` converts BasicFile LOBs to SecureFile on the fly — this first job also creates the table itself. `DISABLE_ARCHIVE_LOGGING:Y` suppresses redo generation for the direct-path load.
 
 #### Import 2–N: remaining dumps in serial (append)
 
@@ -953,31 +973,50 @@ impdp db_user/$$$$$$$$@TARGET_PDB \
 impdp db_user/$$$$$$$$@TARGET_PDB \
     dumpfile=expdp_LOB_TABLE_1_%U.dmp \
     logfile=imp_lob_1.log \
-    parallel=4 \
-    table_exists_action=append
-
-impdp db_user/$$$$$$$$@TARGET_PDB \
-    dumpfile=expdp_LOB_TABLE_2_%U.dmp \
-    logfile=imp_lob_2.log \
-    parallel=4 \
-    table_exists_action=append
-
-impdp db_user/$$$$$$$$@TARGET_PDB \
-    dumpfile=expdp_LOB_TABLE_3_%U.dmp \
-    logfile=imp_lob_3.log \
-    parallel=4 \
-    table_exists_action=append
+    metrics=Y \
+    logtime=ALL \
+    transform=DISABLE_ARCHIVE_LOGGING:Y \
+    parallel=32 \
+    data_options=TRUST_EXISTING_TABLE_PARTITIONS \
+    table_exists_action=APPEND \
+    exclude=GRANT,REF_CONSTRAINT,TRIGGER,INDEX,CONSTRAINT
 ```
 
-Run these **in serial** — each job uses Data Pump native parallelism since the LOB is now SecureFile.
+Repeat for each remaining dump, incrementing the dump and log filename. Run **in serial** — each job uses Data Pump native parallelism since the LOB is now SecureFile on the target.
 
-#### Import cautions
+> **Note:** `lob_storage:securefile` is only needed on Import 1 (which creates the table). Subsequent `APPEND` jobs load into the already-converted SecureFile table.
 
-- **Postpone index creation** until the last job finishes. Index maintenance on every append is expensive.
-- **Size streams pool** before running multiple concurrent Data Pump sessions (Data Pump uses Advanced Queueing internally):
-  ```sql
-  ALTER SYSTEM SET streams_pool_size=2G SCOPE=MEMORY;
-  ```
+#### Post-import: re-enable and rebuild
+
+Rebuild the excluded DDL with parallelism, then restore system settings.
+
+```sql
+-- 1. Restore block integrity checking
+ALTER SYSTEM SET DB_BLOCK_CHECKING = MEDIUM SCOPE=BOTH;
+ALTER SYSTEM SET DB_BLOCK_CHECKSUM = TYPICAL SCOPE=BOTH;
+
+-- 2. Re-enable force logging
+ALTER DATABASE FORCE LOGGING;
+
+-- 3. Validate the imported data
+VALIDATE CHECK LOGICAL DATABASE;
+
+-- 4. Rebuild indexes in parallel, then reset degree
+ALTER INDEX SCHEMA.IDX_NAME REBUILD PARALLEL 32;
+ALTER INDEX SCHEMA.IDX_NAME NOPARALLEL;
+
+-- 5. Enable constraints (NOVALIDATE skips the full table scan on existing rows)
+ALTER TABLE SCHEMA.TABLE_NAME ENABLE NOVALIDATE CONSTRAINT constraint_name;
+
+-- 6. Re-enable triggers
+ALTER TRIGGER SCHEMA.TRIGGER_NAME ENABLE;
+
+-- 7. Re-apply grants
+GRANT SELECT ON SCHEMA.TABLE_NAME TO role_name;
+```
+
+> **Why defer indexes, constraints, and triggers?**  
+> Importing with indexes and constraints active forces Oracle to validate every row and update every index inline — turning a bulk load into row-by-row overhead. Deferring them and rebuilding in parallel afterward is significantly faster for large LOB datasets.
 
 ---
 

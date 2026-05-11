@@ -202,6 +202,84 @@ dumpfile=expdp_<TICKET>_%U.dmp
 
 ---
 
+### Recommended Import Parameters
+
+#### Pre-import: system configuration
+
+Apply before starting the import. Revert all settings post-import.
+
+```sql
+-- Reduces CPU overhead during bulk load; run VALIDATE CHECK LOGICAL DATABASE afterward
+ALTER SYSTEM SET DB_BLOCK_CHECKING = FALSE SCOPE=BOTH;
+ALTER SYSTEM SET DB_BLOCK_CHECKSUM = FALSE SCOPE=BOTH;
+
+-- Avoids writing every change to the redo log; re-enable post-import
+ALTER DATABASE NO FORCE LOGGING;
+```
+
+#### impdp parfile parameters
+
+```
+metrics=Y
+logtime=ALL
+transform=DISABLE_ARCHIVE_LOGGING:Y
+parallel=32
+data_options=TRUST_EXISTING_TABLE_PARTITIONS
+table_exists_action=REPLACE
+exclude=GRANT,REF_CONSTRAINT,TRIGGER,INDEX,CONSTRAINT
+```
+
+| Parameter | Why |
+|-----------|-----|
+| `metrics=Y logtime=ALL` | Timestamps every operation — essential for diagnosing slow stages |
+| `transform=DISABLE_ARCHIVE_LOGGING:Y` | Disables redo generation for direct-path loads; significantly reduces redo volume and import time |
+| `parallel=32` | Maximum concurrent Data Pump worker processes |
+| `data_options=TRUST_EXISTING_TABLE_PARTITIONS` | For partitioned tables — trusts the existing partition structure rather than validating each row against partition bounds |
+| `exclude=GRANT,REF_CONSTRAINT,TRIGGER,INDEX,CONSTRAINT` | Defers expensive DDL until all data is loaded; re-create post-import in parallel |
+
+**`TABLE_EXISTS_ACTION` options:**
+
+| Value | Behaviour |
+|-------|-----------|
+| `REPLACE` | Drop and recreate the table, then load |
+| `TRUNCATE` | Truncate existing rows, then load (preserves table and index structure) |
+| `APPEND` | Add rows without truncating — use for incremental or slice-based loads |
+| `SKIP` | Skip the table if it already exists |
+
+#### Post-import: re-enable and rebuild
+
+Rebuild the excluded DDL with parallelism, then restore system settings.
+
+```sql
+-- 1. Restore block integrity checking
+ALTER SYSTEM SET DB_BLOCK_CHECKING = MEDIUM SCOPE=BOTH;
+ALTER SYSTEM SET DB_BLOCK_CHECKSUM = TYPICAL SCOPE=BOTH;
+
+-- 2. Re-enable force logging
+ALTER DATABASE FORCE LOGGING;
+
+-- 3. Validate the imported data
+VALIDATE CHECK LOGICAL DATABASE;
+
+-- 4. Rebuild indexes in parallel, then reset degree
+ALTER INDEX SCHEMA.IDX_NAME REBUILD PARALLEL 32;
+ALTER INDEX SCHEMA.IDX_NAME NOPARALLEL;
+
+-- 5. Enable constraints (NOVALIDATE skips the full table scan on existing rows)
+ALTER TABLE SCHEMA.TABLE_NAME ENABLE NOVALIDATE CONSTRAINT constraint_name;
+
+-- 6. Re-enable triggers
+ALTER TRIGGER SCHEMA.TRIGGER_NAME ENABLE;
+
+-- 7. Re-apply grants
+GRANT SELECT ON SCHEMA.TABLE_NAME TO role_name;
+```
+
+> **Why exclude constraints, indexes, and triggers and rebuild afterward?**  
+> Importing with indexes and constraints active forces Oracle to validate every row against every constraint and update every index inline — turning a bulk load into row-by-row overhead. Deferring them and rebuilding in parallel afterward is significantly faster for large datasets.
+
+---
+
 ### Oracle DIRECTORY Objects
 
 Create the Oracle DIRECTORY before running exports:
