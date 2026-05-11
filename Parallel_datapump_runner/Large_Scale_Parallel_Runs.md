@@ -140,7 +140,7 @@ This gives an immediate answer to "what failed?" without manually inspecting 400
 ### Step 1 — Create Oracle Directory Objects
 
 ```sql
-CREATE OR REPLACE DIRECTORY "DATA_PUMP_DIR4" AS '/nfs/za9/backup02/tdmcds/';
+CREATE OR REPLACE DIRECTORY "DATA_PUMP_DIR4" AS '/nfs/datapump/export/';
 GRANT READ, WRITE ON DIRECTORY "DATA_PUMP_DIR4" TO system;
 ```
 

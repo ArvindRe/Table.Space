@@ -64,7 +64,7 @@ parallel=32
 - Create the Oracle DIRECTORY before running exports:
 
 ```sql
-CREATE DIRECTORY "DATA_PUMP_DIR4" AS '/nfs/za9/backup02/tdmcds/';
+CREATE DIRECTORY "DATA_PUMP_DIR4" AS '/nfs/datapump/export/';
 ```
 
 - SQL files for directory creation are kept one level up from the table parfiles.
