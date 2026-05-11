@@ -13,12 +13,26 @@ declare    _DP_PASS=""
 declare -i MAX_JOBS=3
 declare    DRY_RUN=0
 declare    OUTPUT_DIR="."
+declare    LOG_DIR="${SCRIPT_DIR}/logs"
+declare    LOG_FILE=""
 
 # Results tracking (indexed arrays, same order)
 declare -a RES_PARFILE=()
 declare -a RES_RC=()
 declare -a RES_START=()
 declare -a RES_END=()
+
+# --- Logging ----------------------------------------------------------------
+# init_logging <tool>
+# Creates logs/ dir, opens a timestamped log file, and tees all subsequent
+# stdout/stderr to it. Call after parse_args so LOG_DIR is set.
+init_logging() {
+    local tool="${1}"
+    mkdir -p "${LOG_DIR}" || { echo "ERROR: Cannot create log directory: ${LOG_DIR}" >&2; exit 1; }
+    LOG_FILE="${LOG_DIR}/${tool}_parallel_$(date '+%Y%m%d_%H%M%S').log"
+    exec > >(tee -a "${LOG_FILE}") 2>&1
+    echo "Logging to: ${LOG_FILE}"
+}
 
 # --- Usage ------------------------------------------------------------------
 usage() {

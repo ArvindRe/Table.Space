@@ -15,6 +15,7 @@ source "${SCRIPT_DIR}/dp_parallel_lib.sh"
 # --- Main -------------------------------------------------------------------
 main() {
     parse_args "impdp" "$@"
+    init_logging "impdp"
     validate_parfiles
     prompt_password
 

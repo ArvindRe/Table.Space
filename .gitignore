@@ -15,6 +15,9 @@ bkp/
 # Log archive directory (local, not source)
 log_archive/
 
+# Parallel runner execution logs
+Parallel_datapump_runner/logs/
+
 # Generated parfiles (produced by datapump.sh per ticket)
 *.par
 

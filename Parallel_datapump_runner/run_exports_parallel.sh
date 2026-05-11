@@ -15,6 +15,7 @@ source "${SCRIPT_DIR}/dp_parallel_lib.sh"
 # --- Main -------------------------------------------------------------------
 main() {
     parse_args "expdp" "$@"
+    init_logging "expdp"
     validate_parfiles
     prompt_password
 
