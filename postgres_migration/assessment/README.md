@@ -143,67 +143,145 @@ npm run assess -- --config config.yaml --output html
 
 ---
 
-## Sample Output
+## Demo
+
+The following output was produced by running the tool against a `MIGRATE_DEMO` schema loaded onto two local Docker instances — Oracle 23c Free (FREEPDB1, port 1521) and Oracle 21c XE (XEPDB1, port 1522). The schema contains 6 tables, 4 views, 3 procedures, 1 package, 2 triggers, and 8 sequences, with Oracle-specific constructs including `DBMS_OUTPUT`, an autonomous transaction pragma, `DECODE`, `BULK COLLECT`/`FORALL`, and complex `:NEW`/`:OLD` trigger logic.
+
+### Console output
 
 ```
+npm run assess -- --config config.yaml
+
 ╔══════════════════════════════════════════════════════════════════╗
 ║           ORA-Migrate-Assess v1.0 — Assessment Report           ║
-║           Source: Oracle 19c | Schema: FINANCE_PROD             ║
 ╚══════════════════════════════════════════════════════════════════╝
 
-SCHEMA INVENTORY
-─────────────────────────────────────────
-  Tables              : 847
-  Views               : 203
-  Stored Procedures   : 412
-  Functions           : 89
-  Triggers            : 156
-  Packages            : 67
-  Sequences           : 134
-  Synonyms            : 298
-  Total Objects       : 2,206
+Connecting to localhost:1521/FREEPDB1 ... connected
 
-COMPLEXITY SCORE: HIGH (73/100)
-  → PL/SQL package usage is the primary complexity driver
-  → 34 packages contain Oracle-specific DBMS_* calls
-  → 12 procedures use autonomous transactions
-  → 8 triggers use :NEW/:OLD with complex conditional logic
+Schema: MIGRATE_DEMO
+────────────────────────────────────────────────────
+  Inspecting schema objects             ... ✓
+  tables: 6 | views: 4 | procedures: 3 | functions: 0 | triggers: 2 | packages: 1 | sequences: 8
+  Analysing PL/SQL source               ... ✓
+  Mapping column data types             ... ✓
 
-TOOL COMPARISON
-─────────────────────────────────────────────────────────────────────
-Object Type      │ Ora2Pg  │ AWS SCT │ AWS DMS │ EDB Portal
-─────────────────┼─────────┼─────────┼─────────┼────────────
-Tables           │ ✅ 98%  │ ✅ 97%  │ ✅ 96%  │ ✅ 99%
-Indexes          │ ✅ 91%  │ ✅ 89%  │ ⚠️ 72%  │ ✅ 93%
-Views            │ ✅ 87%  │ ✅ 84%  │ ❌ 41%  │ ✅ 88%
-Stored Procs     │ ⚠️ 71%  │ ⚠️ 68%  │ ❌ 12%  │ ⚠️ 74%
-Functions        │ ⚠️ 73%  │ ⚠️ 69%  │ ❌ 15%  │ ⚠️ 76%
-Triggers         │ ⚠️ 64%  │ ⚠️ 61%  │ ❌ 8%   │ ⚠️ 67%
-Packages         │ ⚠️ 52%  │ ⚠️ 49%  │ ❌ 0%   │ ⚠️ 58%
-Sequences        │ ✅ 95%  │ ✅ 94%  │ ✅ 90%  │ ✅ 97%
+COMPLEXITY SCORE: LOW (3/100)
+  → 1 packages — primary complexity driver
+  → DBMS_* calls: DBMS_OUTPUT
+  → 1 autonomous transaction pragma(s)
+  → 1 trigger(s) with :NEW/:OLD conditional logic
+  → DECODE (3 occurrence(s))
 
-ZERO-DOWNTIME STRATEGY RECOMMENDATION
-─────────────────────────────────────────
-  Recommended : GoldenGate CDC + Ora2Pg schema migration
-  Alternative : AWS DMS full-load + CDC (if targeting AWS RDS)
-  Rationale   : Package complexity requires manual conversion;
-                CDC replication ensures zero data loss during
-                the extended conversion and testing window.
+TOOL FITNESS SCORES:
+  EDB Migration Portal                       ██████████████████ 89%
+  Ora2Pg                                     █████████████████ 87%
+  AWS Schema Conversion Tool (SCT)           █████████████████ 85%
+  AWS Database Migration Service (DMS)       █████████████ 63%
 
-TOOL RECOMMENDATION: Ora2Pg + EDB Migration Portal
-  → Ora2Pg for bulk schema/data migration
-  → EDB Portal for PL/SQL package conversion assistance
-  → AWS DMS for live CDC replication during cutover
+RECOMMENDATION: EDB Migration Portal
+CDC COMPLEMENT:  AWS Database Migration Service (DMS)
+ESTIMATED EFFORT: 3–6 weeks
 
-ESTIMATED EFFORT
-─────────────────────────────────────────
-  Automated conversion  : 6-8 weeks
-  Manual PL/SQL rework  : 10-14 weeks
-  Testing & validation  : 4-6 weeks
-  Total estimate        : 20-28 weeks
-
-Full report saved to: ./reports/FINANCE_PROD_assessment_2026-05-11.json
+✓ Saved: reports/MIGRATE_DEMO_assessment_2026-05-11.md
 ```
+
+### Full Markdown report
+
+The tool saves a detailed report to `reports/`. Below is the full output for the demo run:
+
+---
+
+**Schema:** MIGRATE_DEMO  |  **Generated:** 2026-05-11 07:59:24
+
+#### Schema Inventory
+```
+  Tables                  : 6
+  Views                   : 4
+  Procedures              : 3
+  Functions               : 0
+  Triggers                : 2
+  Packages                : 1
+  Sequences               : 8
+  Synonyms                : 0
+  ─────────────────────────────
+  Total Objects           : 24
+```
+
+#### Complexity Score: LOW (3/100) 🟢
+```
+  → 1 packages — primary complexity driver
+  → DBMS_* calls: DBMS_OUTPUT
+  → 1 autonomous transaction pragma(s)
+  → 1 trigger(s) with :NEW/:OLD conditional logic
+  → DECODE (3 occurrence(s))
+  → BULK COLLECT (1 occurrence(s))
+  → FORALL (1 occurrence(s))
+  → TYPE ... TABLE OF (collection) (2 occurrence(s))
+  → EXCEPTION (Oracle-specific) (2 occurrence(s))
+```
+
+#### Oracle-Specific Constructs Detected
+```
+  - DECODE (3 occurrence(s))
+  - BULK COLLECT (1 occurrence(s))
+  - FORALL (1 occurrence(s))
+  - TYPE ... TABLE OF (collection) (2 occurrence(s))
+  - EXCEPTION (Oracle-specific) (2 occurrence(s))
+```
+
+#### Tool Comparison
+
+```
+Object Type         Ora2Pg        AWS SCT       AWS DMS       EDB Portal
+────────────────────────────────────────────────────────────────────────
+Tables              ✅ 98%        ✅ 97%        ✅ 96%        ✅ 99%
+Views               ⚠️  87%       ⚠️  84%       ❌ 41%        ⚠️  88%
+Procedures          ⚠️  71%       ⚠️  68%       ❌ 12%        ⚠️  74%
+Triggers            ⚠️  64%       ⚠️  61%       ❌  8%        ⚠️  67%
+Packages            ❌ 52%        ❌ 49%        ❌  0%        ❌ 58%
+Sequences           ✅ 95%        ✅ 94%        ✅ 90%        ✅ 97%
+
+Weighted Fitness Score (by schema composition):
+  EDB Migration Portal                      : 89%
+  Ora2Pg                                    : 87%
+  AWS Schema Conversion Tool (SCT)          : 85%
+  AWS Database Migration Service (DMS)      : 63%
+```
+
+#### Data Type Mapping
+
+| Oracle Type | Columns | PostgreSQL Type | Risk | Notes |
+|---|---|---|---|---|
+| NUMBER | 28 | NUMERIC / INTEGER / BIGINT | 🟡 review | Inspect precision/scale: NUMBER(p,0) → INTEGER, NUMBER(p,s) → NUMERIC(p,s), bare NUMBER → NUMERIC |
+| VARCHAR2 | 17 | VARCHAR(n) | 🟢 auto | Direct mapping; verify NLS_LENGTH_SEMANTICS |
+| DATE | 4 | TIMESTAMP(0) | 🟡 review | Oracle DATE includes time component; PG DATE is date-only |
+| CLOB | 3 | TEXT | 🟡 review | PG TEXT is unlimited; streaming semantics differ from LOB locators |
+| TIMESTAMP(6) | 2 | — no direct mapping | 🔴 manual | Requires manual review |
+| CHAR | 2 | CHAR(n) | 🟢 auto | Direct mapping |
+| RAW | 1 | BYTEA | 🟢 auto | Direct mapping |
+
+#### Estimated Migration Effort
+```
+  Automated schema/data conversion : 1–2 weeks
+  Manual PL/SQL rework             : 1–3 weeks
+  Testing & validation             : 1–1 weeks
+  ──────────────────────────────────────────────
+  Total estimate                   : 3–6 weeks
+```
+
+#### Recommendation
+```
+  Primary tool          : EDB Migration Portal (89% weighted fit)
+  CDC complement        : AWS Database Migration Service (DMS)
+  Zero-downtime strategy: AWS DMS full-load + CDC, paired with EDB Migration
+                          Portal for schema/code migration
+
+  Rationale:
+    - EDB Migration Portal scores highest (89%) weighted by schema composition
+    - AWS DMS recommended for live CDC replication during the cutover window
+```
+
+---
 
 ---
 
