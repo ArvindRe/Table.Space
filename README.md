@@ -1,6 +1,4 @@
-# Oracle Data Pump Scripts
-
-A space for capturing Oracle database migration approaches — the complexity encountered in real-world large-scale data movements, and the solutions built to address them. Rooted in production experience running 400 concurrent Data Pump export jobs over 72 hours against 400 TB+ Exadata databases, this repository documents both the operational scripts and the architectural decisions, trade-offs, and lessons that shaped them.
+A space for capturing database migration approaches — the complexity encountered in real-world large-scale data movements, and the solutions built to address them. Covers Oracle-to-Oracle migrations, cross-platform transitions, and PostgreSQL migrations. Documents operational scripts alongside the architectural decisions, constraints, trade-offs, and lessons that shaped each approach.
 
 ---
 
@@ -13,6 +11,8 @@ A space for capturing Oracle database migration approaches — the complexity en
 | [Parallel Runner — Usage](Parallel_datapump_runner/README.md) | How to use `run_exports_parallel.sh` and `run_imports_parallel.sh` |
 | [Parallel Runner — Learnings](Parallel_datapump_runner/learnings.md) | Operational lessons: single-quote escaping, LOB identification SQL, ROWID-split parfile patterns, SecureFile import transforms |
 | [Resource Utilisation — PGA & TEMP](resource_utilization/README.md) | Scripts for monitoring PGA memory and TEMP tablespace under parallel export load — live snapshot, AWR trend, 80% threshold detection, interactive drilldown |
+| [Cross-Platform Migration](cross_platform_migration/README.md) | Approaches, tooling, and lessons for migrating between database platforms |
+| [PostgreSQL Migration](postgres_migration/README.md) | Approaches and tooling for migrating to PostgreSQL |
 
 ---
 
