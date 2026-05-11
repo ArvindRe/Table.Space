@@ -56,7 +56,7 @@
 | Script | Role |
 |--------|------|
 | `ZFS_sync.sh` | Triggers an on-demand ZFS replication send/update from the Denver (DEN) ZFS appliance to the ZFS site via the ZFS REST API. Polls every 5 minutes (up to 20 iterations) until the state returns to `idle`. Run in background and tail the log. |
-| `ZFS_FUNC_status.sh` | Queries the ZFS REST API and prints the current replication state (`sending` or `idle`) without triggering a new sync. |
+| `ZFS_SYNC_status.sh` | Queries the ZFS REST API and prints the current replication state (`sending` or `idle`) without triggering a new sync. |
 
 ---
 

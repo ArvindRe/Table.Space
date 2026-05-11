@@ -30,6 +30,64 @@ This page describes the end-to-end workflow for running Oracle Data Pump export/
 
 ---
 
+## Prerequisites — Password Helper (`get_pw.sh`)
+
+Several scripts (`get_host.sh`, `datapump_longops.sh`, `datapump_workflow.sh`) retrieve database passwords by calling:
+
+```bash
+/export/home/oracle/bin/get_pw.sh <DB_NAME> <username>
+```
+
+This script must be present on every host where the Datapump scripts run. **It is not included in the scripts deployment — you must create it yourself** to match your environment's credential storage.
+
+### What it must do
+
+Accept two positional arguments (`DB_NAME`, `username`) and print the plaintext password to stdout, then exit 0. Any non-zero exit causes the calling script to abort.
+
+### Customisation options
+
+| Environment | Recommended implementation |
+|-------------|----------------------------|
+| **CyberArk / AIM** | Call `AIMGetCredential.exe` or the `clipasswordsdk` CLI and print `Password=` field |
+| **HashiCorp Vault** | `vault kv get -field=password secret/oracle/<DB_NAME>/<username>` |
+| **CyberArk Central Credential Provider (CCP)** | HTTP REST call via `curl` to the CCP endpoint, parse the `Content` field |
+| **Oracle Wallet / mkstore** | `mkstore -wrl /path/to/wallet -viewEntry oracle.security.client.password1` |
+| **Flat credential file (simple/dev)** | Lookup from a protected file readable only by the `oracle` OS user |
+| **Interactive fallback** | Prompt with `read -s -rp "Password: " pw && echo "$pw"` (not suitable for cron) |
+
+### Minimal template
+
+```bash
+#!/bin/bash
+# /export/home/oracle/bin/get_pw.sh
+# Retrieve Oracle password from your PAM/credential store.
+# Usage: get_pw.sh <DB_NAME> <username>
+
+DB_NAME="${1:?DB_NAME required}"
+USERNAME="${2:?username required}"
+
+# --- CUSTOMISE THIS BLOCK ---
+# Replace the example below with a call to your PAM tool.
+# Must print the password to stdout and exit 0 on success.
+
+# Example: CyberArk AIM
+# /opt/CARKaim/sdk/clipasswordsdk GetPassword \
+#   -p AppDescs.AppID=OracleScripts \
+#   -p Query="Safe=OracleSafe;Object=${DB_NAME}_${USERNAME}" \
+#   -o Password
+
+# Example: HashiCorp Vault
+# vault kv get -field=password "secret/oracle/${DB_NAME}/${USERNAME}"
+
+echo "ERROR: get_pw.sh is not configured. Edit /export/home/oracle/bin/get_pw.sh." >&2
+exit 1
+# --- END CUSTOMISE ---
+```
+
+> **Security:** The script must be owned by `oracle`, mode `700`, and must **never** write passwords to disk, shell history, or logs. The scripts that call it pass the output directly into sqlplus via a process substitution — the password is never stored in a variable that could appear in `ps` output.
+
+---
+
 ## Part 1: Generating Parfiles
 
 ### Step 1 — Run `datapump.sh`
@@ -724,7 +782,7 @@ Queries the ZFS REST API and prints the current state of the replication action 
 
 **Usage:**
 ```bash
-./ZFS_FUNC_status.sh
+./ZFS_SYNC_status.sh
 ```
 
 **Output (sync in progress):**
