@@ -31,7 +31,6 @@ log_archive/
 !Parallel_datapump_runner/README.md
 !Parallel_datapump_runner/learnings.md
 !resource_utilization/README.md
-!cross_platform_migration/README.md
 !postgres_migration/README.md
 !postgres_migration/assessment/README.md
 *.txt
