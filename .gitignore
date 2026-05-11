@@ -21,3 +21,20 @@ log_archive/
 # Any stray dump/log files at repo root
 *.dmp
 *.log
+
+# Non-script files — markdown and docs added selectively
+*.md
+*.txt
+*.agent.md
+SKILL.md
+datapump-dba.agent.md
+.env.example
+
+# Compiled/binary outputs
+compiled/
+
+# IDE workspace files
+*.code-workspace
+
+# CV and personal notes
+CV_topups.md
