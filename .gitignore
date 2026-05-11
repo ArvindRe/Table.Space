@@ -29,6 +29,7 @@ log_archive/
 !Parallel_datapump_runner/Large_Scale_Parallel_Runs.md
 !Parallel_datapump_runner/README.md
 !Parallel_datapump_runner/learnings.md
+!resource_utilization/README.md
 *.txt
 *.agent.md
 SKILL.md
