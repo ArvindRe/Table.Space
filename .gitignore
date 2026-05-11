@@ -22,8 +22,13 @@ log_archive/
 *.dmp
 *.log
 
-# Non-script files — markdown and docs added selectively
+# Non-script files — markdown added selectively via negation rules below
 *.md
+!README.md
+!Advanced_Use_Cases.md
+!Parallel_datapump_runner/ARTICLE.md
+!Parallel_datapump_runner/README.md
+!Parallel_datapump_runner/learnings.md
 *.txt
 *.agent.md
 SKILL.md
