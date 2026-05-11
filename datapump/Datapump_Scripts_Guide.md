@@ -169,33 +169,94 @@ impdp db_user/$$$$$$$$@TARGET_PDB parfile=RITM1096665/impdp_RITM1096665.par
 
 > **Note:** The BKP export (`expdp_<TICKET>_BKP.par`) should always be run on the **target** database before importing, to capture any existing data that would be overwritten or replaced. This allows rollback if the import needs to be reversed.
 
-> **Partitioned Table note:** Indexes, constraints, triggers, and grants are excluded from impdp and must be re-created manually. The impdp parfile contains a `POST-IMPORT STEPS` comment block with the exact DDL steps, including rebuilding indexes with parallelism and enabling constraints with `NOVALIDATE`.
+> **All data imports (job types 1–3, 5, 7, 8):** Indexes, constraints, triggers, and grants are excluded from impdp and rebuilt post-import in parallel. Each generated impdp parfile contains `PRE-IMPORT` and `POST-IMPORT` SQL comment blocks with the exact steps. See [Recommended Import Parameters](#recommended-import-parameters) below.
+
+---
+
+### Generated parfile content
+
+The following shows exactly what `datapump.sh` produces for a Schema export (job type 2). All best-practice parameters are included automatically — no manual addition required.
+
+**`expdp_RITM1000665.par`**
+```
+schemas=REVENUE_OWNER
+directory=DATA_PUMP_DIR1
+dumpfile=expdp_RITM1000665_%U.dmp
+logfile=expdp_RITM1000665.log
+parallel=8
+job_name=expdp_RITM1000665
+metrics=Y
+logtime=ALL
+compression=ALL
+compression_algorithm=MEDIUM
+cluster=N
+exclude=STATISTICS
+remap_schema=REVENUE_OWNER:CL_NRW:REVENUE_OWNER_CL_VAL
+remap_tablespace=REVENUE_DATA:REVENUE_REP_DATA
+```
+
+**`impdp_RITM1000665.par`**
+```
+#
+# PRE-IMPORT (run before impdp):
+#   ALTER SYSTEM SET DB_BLOCK_CHECKING = FALSE SCOPE=BOTH;
+#   ALTER SYSTEM SET DB_BLOCK_CHECKSUM = FALSE SCOPE=BOTH;
+#   ALTER DATABASE NO FORCE LOGGING;
+#
+job_name=impdp_RITM1000665
+schemas=REVENUE_OWNER
+directory=DATA_PUMP_DIR1
+dumpfile=expdp_RITM1000665_%U.dmp
+logfile=impdp_RITM1000665.log
+parallel=8
+table_exists_action=replace
+metrics=Y
+logtime=ALL
+# transform=DISABLE_ARCHIVE_LOGGING:Y
+exclude=GRANT,REF_CONSTRAINT,TRIGGER,INDEX,CONSTRAINT
+remap_schema=REVENUE_OWNER:CL_NRW:REVENUE_OWNER_CL_VAL
+remap_tablespace=REVENUE_DATA:REVENUE_REP_DATA
+
+#
+# POST-IMPORT (run after impdp completes):
+# 1. Restore block integrity checking:
+#    ALTER SYSTEM SET DB_BLOCK_CHECKING = MEDIUM SCOPE=BOTH;
+#    ALTER SYSTEM SET DB_BLOCK_CHECKSUM = TYPICAL SCOPE=BOTH;
+# 2. Re-enable force logging:
+#    ALTER DATABASE FORCE LOGGING;
+# 3. Validate imported data:
+#    VALIDATE CHECK LOGICAL DATABASE;
+# 4. Rebuild indexes in parallel, then reset degree:
+#    ALTER INDEX <owner>.<index_name> REBUILD PARALLEL 8;
+#    ALTER INDEX <owner>.<index_name> NOPARALLEL;
+# 5. Enable constraints (NOVALIDATE skips full-table scan on existing rows):
+#    ALTER TABLE <owner>.<table_name> ENABLE NOVALIDATE CONSTRAINT <constraint_name>;
+# 6. Re-enable triggers:
+#    ALTER TRIGGER <owner>.<trigger_name> ENABLE;
+# 7. Re-apply grants:
+#    GRANT <privilege> ON <owner>.<table_name> TO <role_name>;
+#
+```
 
 ---
 
 ### Recommended Export Parameters
 
-Include these in every export parfile:
+Generated automatically by `datapump.sh` for all data exports. No manual addition required.
 
-```
-metrics=Y
-logtime=ALL
-compression=ALL
-compression_algorithm=MEDIUM
-exclude=STATISTICS
-cluster=N
-parallel=32
-```
+| Parameter | Job types | Why |
+|-----------|-----------|-----|
+| `metrics=Y logtime=ALL` | All | Timestamps every operation — essential for diagnosing slow stages |
+| `compression=ALL` | 1–5 | Reduces dumpfile size significantly |
+| `compression_algorithm=MEDIUM` | 1–5, 8 | MEDIUM balances compression speed and ratio |
+| `cluster=N` | All | Prevents the master process from migrating to another RAC instance |
+| `exclude=STATISTICS` | 1–5, 8 | Re-gather stats on target after import — importing stale stats causes plan regressions |
 
-| Parameter | Why |
-|-----------|-----|
-| `exclude=STATISTICS` | Regenerate stats on the target rather than importing stale ones |
-| `cluster=N` | Disables RAC cross-instance parallelism — always set when exporting from a standby |
-| `parallel=32` | Calibrate to available CPU and dumpfile write capacity |
-| `metrics=Y logtime=ALL` | Timestamps every line in the log — essential for diagnosing slow jobs |
-| `compression=ALL compression_algorithm=MEDIUM` | Reduces dumpfile size significantly; MEDIUM balances speed and ratio |
+> **Metadata-only exports (type 6):** `compression` and `exclude=STATISTICS` are not added — no data, no statistics to exclude.
 
-Dumpfile naming: use `%U` for multi-file parallelism:
+> **Partitioned table exports (type 8):** `compression=DATA_ONLY` replaces `ALL` (data-only compression for the row segments).
+
+Dumpfile naming: `%U` enables multi-file parallelism:
 ```
 dumpfile=expdp_<TICKET>_%U.dmp
 ```
@@ -204,9 +265,11 @@ dumpfile=expdp_<TICKET>_%U.dmp
 
 ### Recommended Import Parameters
 
+Generated automatically by `datapump.sh` for all data imports (job types 1–3, 5, 7, 8). The `PRE-IMPORT` and `POST-IMPORT` SQL blocks appear as comments in each generated impdp parfile. `transform=DISABLE_ARCHIVE_LOGGING:Y` is included commented — uncomment it for large data imports and re-enable force logging afterward.
+
 #### Pre-import: system configuration
 
-Apply before starting the import. Revert all settings post-import.
+Apply before starting the import on TARGET. Revert all settings post-import.
 
 ```sql
 -- Reduces CPU overhead during bulk load; run VALIDATE CHECK LOGICAL DATABASE afterward

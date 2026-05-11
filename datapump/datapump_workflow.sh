@@ -372,6 +372,13 @@ fi
 
 hdr 6 "Run TARGET import  (impdp)"
 
+warn "Before proceeding — confirm the following SQL has been applied on TARGET:"
+info "  ALTER SYSTEM SET DB_BLOCK_CHECKING = FALSE SCOPE=BOTH;"
+info "  ALTER SYSTEM SET DB_BLOCK_CHECKSUM = FALSE SCOPE=BOTH;"
+info "  ALTER DATABASE NO FORCE LOGGING;"
+info "  (To suppress redo: uncomment transform=DISABLE_ARCHIVE_LOGGING:Y in the impdp parfile)"
+echo ""
+
 if [[ ! -f "${PARFILE_IMP}" ]]; then
     warn "Import parfile not found: ${PARFILE_IMP}"
     prompt_required "Enter full path to import parfile" PARFILE_IMP
@@ -383,6 +390,16 @@ if run_dp_cmd impdp "${TARGET_DB}" "${PARFILE_IMP}" "${DB_USER}"; then
         "IMP" "${IMP_LOG_PATH}" "${PARFILE_IMP}" \
         "${DP_LAST_START}" "${DP_LAST_END}" "${DP_LAST_RC}"
     unset DP_LAST_PASS
+    echo ""
+    warn "Post-import steps to run on TARGET:"
+    info "  1. ALTER SYSTEM SET DB_BLOCK_CHECKING = MEDIUM SCOPE=BOTH;"
+    info "  2. ALTER SYSTEM SET DB_BLOCK_CHECKSUM = TYPICAL SCOPE=BOTH;"
+    info "  3. ALTER DATABASE FORCE LOGGING;"
+    info "  4. VALIDATE CHECK LOGICAL DATABASE;"
+    info "  5. Rebuild excluded indexes with PARALLEL N, then NOPARALLEL"
+    info "  6. ENABLE NOVALIDATE CONSTRAINT for each deferred constraint"
+    info "  7. Re-enable triggers and re-apply grants"
+    info "  (Full SQL in POST-IMPORT comment block inside $(basename "${PARFILE_IMP}"))"
 fi
 
 # =============================================================================

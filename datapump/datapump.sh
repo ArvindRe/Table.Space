@@ -246,10 +246,23 @@ if [[ $JOB_TYPE -ne 7 ]]; then
         echo "logfile=${LOGFILE}"
         echo "parallel=${PARALLEL}"
         echo "job_name=${EXP_JOBNAME}"
+        echo "metrics=Y"
+        echo "logtime=ALL"
         [[ $JOB_TYPE -eq 5 ]] && echo "query=${TABLES}:\"WHERE ${QUERY_WHERE}\""
         [[ $JOB_TYPE -eq 6 ]] && echo "content=METADATA_ONLY"
         [[ $JOB_TYPE -eq 8 ]] && echo "compression=DATA_ONLY"
-        [[ "$TTS_MODE" == "y" ]] || [[ "$TTS_MODE" == "Y" ]] && echo "transport_full_check=Y"
+        # compression=ALL for data exports; not metadata-only (6), not partition-data-only (8), not TTS
+        if [[ $JOB_TYPE -ne 6 && $JOB_TYPE -ne 8 && "$TTS_MODE" != "y" && "$TTS_MODE" != "Y" ]]; then
+            echo "compression=ALL"
+        fi
+        # compression_algorithm for all data exports that produce a dumpfile (not metadata-only, not TTS)
+        if [[ $JOB_TYPE -ne 6 && "$TTS_MODE" != "y" && "$TTS_MODE" != "Y" ]]; then
+            echo "compression_algorithm=MEDIUM"
+        fi
+        [[ "$TTS_MODE" == "y" || "$TTS_MODE" == "Y" ]] && echo "transport_full_check=Y"
+        echo "cluster=N"
+        # Always exclude statistics from data exports — re-gather on target after import
+        [[ $JOB_TYPE -ne 6 ]] && echo "exclude=STATISTICS"
         [[ -n "$INCLUDE_FILTER" ]] && echo "include=${INCLUDE_FILTER}"
         [[ -n "$EXCLUDE_FILTER" ]] && echo "exclude=${EXCLUDE_FILTER}"
     } > "$EXPFILE"
@@ -267,10 +280,21 @@ if [[ $JOB_TYPE -ne 7 ]]; then
         echo "directory=${DIRECTORY}"
         [[ $JOB_TYPE -ne 7 ]] && echo "dumpfile=${DUMPFILE_BKP}"
         echo "logfile=${LOGFILE_BKP}"
+        echo "parallel=${PARALLEL}"
+        echo "metrics=Y"
+        echo "logtime=ALL"
         [[ $JOB_TYPE -eq 5 ]] && echo "query=${TABLES}:\"WHERE ${QUERY_WHERE}\""
         [[ $JOB_TYPE -eq 6 ]] && echo "content=METADATA_ONLY"
         [[ $JOB_TYPE -eq 8 ]] && echo "compression=DATA_ONLY"
-        [[ "$TTS_MODE" == "y" ]] || [[ "$TTS_MODE" == "Y" ]] && echo "transport_full_check=Y"
+        if [[ $JOB_TYPE -ne 6 && $JOB_TYPE -ne 8 && "$TTS_MODE" != "y" && "$TTS_MODE" != "Y" ]]; then
+            echo "compression=ALL"
+        fi
+        if [[ $JOB_TYPE -ne 6 && "$TTS_MODE" != "y" && "$TTS_MODE" != "Y" ]]; then
+            echo "compression_algorithm=MEDIUM"
+        fi
+        [[ "$TTS_MODE" == "y" || "$TTS_MODE" == "Y" ]] && echo "transport_full_check=Y"
+        echo "cluster=N"
+        [[ $JOB_TYPE -ne 6 ]] && echo "exclude=STATISTICS"
         [[ -n "$INCLUDE_FILTER" ]] && echo "include=${INCLUDE_FILTER}"
         [[ -n "$EXCLUDE_FILTER" ]] && echo "exclude=${EXCLUDE_FILTER}"
     } > "$EXPFILE_BKP"
@@ -283,10 +307,27 @@ IMPFILE="impdp_${TICKET}.par"
 IMPLOG="impdp_${TICKET}.log"
 IMP_JOBNAME="impdp_${TICKET}"
 
+# Flag: data import = not metadata-only (6) and not TTS tablespace (4+TTS)
+IS_DATA_IMP=1
+[[ $JOB_TYPE -eq 6 ]] && IS_DATA_IMP=0
+if [[ $JOB_TYPE -eq 4 ]] && [[ "$TTS_MODE" == "y" || "$TTS_MODE" == "Y" ]]; then IS_DATA_IMP=0; fi
+
+# Parallel degree reference for post-import index rebuild comments
+PARALLEL_REF="${PARALLEL}"
+[[ $JOB_TYPE -eq 8 ]] && PARALLEL_REF="${IMP_PARALLEL_PT}"
+
 {
+    if [[ $IS_DATA_IMP -eq 1 ]]; then
+        echo "#"
+        echo "# PRE-IMPORT (run before impdp):"
+        echo "#   ALTER SYSTEM SET DB_BLOCK_CHECKING = FALSE SCOPE=BOTH;"
+        echo "#   ALTER SYSTEM SET DB_BLOCK_CHECKSUM = FALSE SCOPE=BOTH;"
+        echo "#   ALTER DATABASE NO FORCE LOGGING;"
+        echo "#"
+    fi
     echo "job_name=${IMP_JOBNAME}"
     # TTS impdp uses transport_datafiles instead of a scope selector
-    if [[ $JOB_TYPE -eq 4 && ("$TTS_MODE" == "y" || "$TTS_MODE" == "Y") ]]; then
+    if [[ $JOB_TYPE -eq 4 ]] && [[ "$TTS_MODE" == "y" || "$TTS_MODE" == "Y" ]]; then
         echo "# transport_datafiles=<comma-separated datafile paths after copying to target>"
     else
         echo "$(get_scope_param)"
@@ -302,28 +343,45 @@ IMP_JOBNAME="impdp_${TICKET}"
     [[ $JOB_TYPE -eq 7 ]] && echo "network_link=${NETWORK_LINK}"
     [[ -n "$TABLE_EXISTS_ACTION" ]] && echo "table_exists_action=${TABLE_EXISTS_ACTION}"
     [[ $JOB_TYPE -eq 6 ]] && echo "content=METADATA_ONLY"
+    echo "metrics=Y"
+    echo "logtime=ALL"
+    # Uncomment to suppress redo for direct-path load (large data imports)
+    # When enabled: disable force logging pre-import; run VALIDATE CHECK LOGICAL DATABASE after
+    [[ $IS_DATA_IMP -eq 1 ]] && echo "# transform=DISABLE_ARCHIVE_LOGGING:Y"
     if [[ $JOB_TYPE -eq 8 ]]; then
         echo "data_options=TRUST_EXISTING_TABLE_PARTITIONS"
         echo "table_exists_action=replace"
-        echo "exclude=grant,REF_CONSTRAINT,TRIGGER,index,constraint"
-        echo ""
-        echo "#"
-        echo "# POST-IMPORT STEPS (run manually after impdp completes):"
-        echo "# 1. Rebuild indexes with parallelism:"
-        echo "#    ALTER INDEX <owner>.<index_name> REBUILD PARALLEL ${IMP_PARALLEL_PT};"
-        echo "#    (repeat for all indexes on the imported tables)"
-        echo "# 2. Enable constraints with NOVALIDATE to avoid full-table scan:"
-        echo "#    ALTER TABLE <owner>.<table_name> ENABLE NOVALIDATE CONSTRAINT <constraint_name>;"
-        echo "# 3. Reset index/table parallelism back to 1 after rebuild:"
-        echo "#    ALTER INDEX <owner>.<index_name> NOPARALLEL;"
-        echo "#    ALTER TABLE <owner>.<table_name> NOPARALLEL;"
-        echo "#"
+        echo "exclude=GRANT,REF_CONSTRAINT,TRIGGER,INDEX,CONSTRAINT"
+    elif [[ $IS_DATA_IMP -eq 1 ]]; then
+        echo "exclude=GRANT,REF_CONSTRAINT,TRIGGER,INDEX,CONSTRAINT"
     fi
     [[ -n "$REMAP_TABLE"  ]] && echo "remap_table=${REMAP_TABLE}"
     [[ -n "$REMAP_TS"     ]] && echo "remap_tablespace=${REMAP_TS}"
     [[ -n "$REMAP_SCHEMA" ]] && echo "remap_schema=${REMAP_SCHEMA}"
     [[ -n "$INCLUDE_FILTER" ]] && echo "include=${INCLUDE_FILTER}"
     [[ -n "$EXCLUDE_FILTER" ]] && echo "exclude=${EXCLUDE_FILTER}"
+    if [[ $IS_DATA_IMP -eq 1 ]]; then
+        echo ""
+        echo "#"
+        echo "# POST-IMPORT (run after impdp completes):"
+        echo "# 1. Restore block integrity checking:"
+        echo "#    ALTER SYSTEM SET DB_BLOCK_CHECKING = MEDIUM SCOPE=BOTH;"
+        echo "#    ALTER SYSTEM SET DB_BLOCK_CHECKSUM = TYPICAL SCOPE=BOTH;"
+        echo "# 2. Re-enable force logging:"
+        echo "#    ALTER DATABASE FORCE LOGGING;"
+        echo "# 3. Validate imported data:"
+        echo "#    VALIDATE CHECK LOGICAL DATABASE;"
+        echo "# 4. Rebuild indexes in parallel, then reset degree:"
+        echo "#    ALTER INDEX <owner>.<index_name> REBUILD PARALLEL ${PARALLEL_REF};"
+        echo "#    ALTER INDEX <owner>.<index_name> NOPARALLEL;"
+        echo "# 5. Enable constraints (NOVALIDATE skips full-table scan on existing rows):"
+        echo "#    ALTER TABLE <owner>.<table_name> ENABLE NOVALIDATE CONSTRAINT <constraint_name>;"
+        echo "# 6. Re-enable triggers:"
+        echo "#    ALTER TRIGGER <owner>.<trigger_name> ENABLE;"
+        echo "# 7. Re-apply grants:"
+        echo "#    GRANT <privilege> ON <owner>.<table_name> TO <role_name>;"
+        echo "#"
+    fi
 } > "$IMPFILE"
 
 #
@@ -344,7 +402,8 @@ fi
 echo "✔ IMPDP parfile        : $IMPFILE"
 echo ""
 [[ $JOB_TYPE -eq 7 ]] && echo "ℹ  Network link mode: no dumpfile needed — impdp pulls data directly via DB link '${NETWORK_LINK}'."
-[[ $JOB_TYPE -eq 8 ]] && echo "ℹ  Partitioned table mode: indexes, constraints, triggers, and grants are excluded from impdp. See post-import comments inside $IMPFILE."
+[[ $IS_DATA_IMP -eq 1 ]] && echo "ℹ  PRE/POST-IMPORT SQL blocks are included as comments in $IMPFILE — apply on TARGET before and after impdp."
+[[ $JOB_TYPE -eq 8 ]] && echo "ℹ  Partitioned table: data_options=TRUST_EXISTING_TABLE_PARTITIONS skips row-level partition validation on load."
 echo ""
 echo "ℹ  To inspect or clean up dumpfiles after export, use the centralised scripts:"
 echo "     get_dumpfiles.sh   <expdp_logfile>   # list dumpfile paths"
