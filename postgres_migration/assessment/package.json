@@ -1,0 +1,22 @@
+{
+  "name": "ora-migrate-assess",
+  "version": "1.0.0",
+  "description": "CLI-based Oracle-to-PostgreSQL migration assessment tool",
+  "main": "src/cli.js",
+  "bin": {
+    "ora-migrate-assess": "src/cli.js"
+  },
+  "scripts": {
+    "assess": "node src/cli.js"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "js-yaml": "^4.1.0",
+    "oracledb": "^6.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

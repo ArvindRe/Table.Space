@@ -1,0 +1,21 @@
+oracle:
+  host: your-oracle-host
+  port: 1521
+  service: ORCLPDB1
+  user: assessment_user
+  password: ${ORACLE_PASSWORD}   # use env var, never hardcode
+
+assessment:
+  schemas:
+    - SCHEMA_A
+    - SCHEMA_B
+  include_data_profiling: true
+  output_formats:
+    - markdown
+    - json
+
+targets:
+  - ora2pg
+  - aws_sct
+  - aws_dms
+  - edb_portal
