@@ -3,7 +3,6 @@
 > **CLI-based Oracle-to-PostgreSQL migration assessment tool**  
 > Evaluate, compare, and plan your Oracle database migration to PostgreSQL-compatible targets using industry-leading conversion tools.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Oracle](https://img.shields.io/badge/Source-Oracle%2019c-red.svg)](https://www.oracle.com/database/)
 [![PostgreSQL](https://img.shields.io/badge/Target-PostgreSQL%2FAlloyDB-336791.svg)](https://www.postgresql.org/)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js-339933.svg)](https://nodejs.org/)
@@ -321,8 +320,3 @@ Senior Oracle DBA | OCP 19c | 15+ Years Enterprise Database Architecture
 
 > *"I manage what your customers are trying to migrate away from — and I built tooling to help them do it right."*
 
----
-
-## License
-
-MIT — see [LICENSE](LICENSE) for details.

@@ -107,13 +107,13 @@ then unpacked back into the SMB dictionary.
 
 ### Step-by-step
 
-#### Step 1. Export SQL Plan Baselines (run on SOURCE as TOURADDNER)
+#### Step 1. Export SQL Plan Baselines (run on SOURCE as APP_OWNER)
 
 **1a. Create the baseline staging table:**
 
 ```sql
 BEGIN
-  DBMS_SPM.CREATE_STGTAB_BASELINE('baseline_staging_table', 'TOURADDNER');
+  DBMS_SPM.CREATE_STGTAB_BASELINE('baseline_staging_table', 'APP_OWNER');
 END;
 /
 ```
@@ -124,19 +124,19 @@ END;
 DECLARE
   x NUMBER;
 BEGIN
-  x := DBMS_SPM.PACK_STGTAB_BASELINE('baseline_staging_table', 'TOURADDNER');
+  x := DBMS_SPM.PACK_STGTAB_BASELINE('baseline_staging_table', 'APP_OWNER');
   DBMS_OUTPUT.PUT_LINE(TO_CHAR(x) || ' plan baselines packed');
 END;
 /
 ```
 
-#### Step 2. Export SQL Profiles (run on SOURCE as TOURADDNER)
+#### Step 2. Export SQL Profiles (run on SOURCE as APP_OWNER)
 
 **2a. Create the SQL Profile staging table:**
 
 ```sql
 BEGIN
-  DBMS_SQLTUNE.CREATE_STGTAB_SQLPROF('sqlprof_staging_table', 'TOURADDNER');
+  DBMS_SQLTUNE.CREATE_STGTAB_SQLPROF('sqlprof_staging_table', 'APP_OWNER');
 END;
 /
 ```
@@ -165,7 +165,7 @@ Enter Ticket Name       : RITM1096665_SPM
 Enter Oracle DIRECTORY  : DATA_PUMP_DIR
 Enter PARALLEL degree   : 2
 Select job type         : 1          # Table
-Enter tables            : TOURADDNER.baseline_staging_table,TOURADDNER.sqlprof_staging_table
+Enter tables            : APP_OWNER.baseline_staging_table,APP_OWNER.sqlprof_staging_table
 Enter table_exists_action : replace
 Enter remap_table       : <Enter to skip>
 Enter remap_tablespace  : <Enter to skip>
@@ -183,7 +183,7 @@ Enter remap_schema      : <Enter to skip>
 - **Step 5** → `[S]kip` BKP export (no pre-existing baselines on a freshly refreshed target)
 - **Step 6** → `[R]un` import on TARGET
 
-#### Step 4. Unpack on TARGET (run as TOURADDNER)
+#### Step 4. Unpack on TARGET (run as APP_OWNER)
 
 **4a. Unpack baselines:**
 
@@ -191,7 +191,7 @@ Enter remap_schema      : <Enter to skip>
 DECLARE
   x NUMBER;
 BEGIN
-  x := DBMS_SPM.UNPACK_STGTAB_BASELINE('baseline_staging_table', 'TOURADDNER');
+  x := DBMS_SPM.UNPACK_STGTAB_BASELINE('baseline_staging_table', 'APP_OWNER');
   DBMS_OUTPUT.PUT_LINE(TO_CHAR(x) || ' plan baselines unpacked');
 END;
 /
@@ -359,7 +359,7 @@ include=PROCEDURE,TRIGGER,PACKAGE,PACKAGE_BODY,FUNCTION,TYPE,TYPE_BODY,VIEW,SYNO
 Run with:
 
 ```bash
-impdp TOURADDNER@SOURCE_DB parfile=impdp_RITM1096665_DDL_sqlfile.par
+impdp APP_OWNER@SOURCE_DB parfile=impdp_RITM1096665_DDL_sqlfile.par
 ```
 
 #### Step 4. Retrieve the SQL file from the Oracle DIRECTORY
@@ -374,8 +374,8 @@ The file `RITM1096665_ddl_scripts.sql` is written to the OS path of
 Then copy the SQL file from the directory path it returns, e.g.:
 
 ```bash
-cp /u01/app/oracle/admin/SOURCEDB/dpdump/RITM1096665_ddl_scripts.sql \
-   /export/home/oracle/arvind/RITM1096665_DDL/
+cp /oracle/admin/SOURCE_DB/dpdump/RITM1096665_ddl_scripts.sql \
+   /export/home/oracle/scripts/RITM1096665_DDL/
 ```
 
 #### Step 5. What the SQL file contains
@@ -808,7 +808,7 @@ irrelevant (no source export dumpfile).
 | Use Case | `datapump.sh` Job Type | Scope | Key Parameters |
 |----------|------------------------|-------|----------------|
 | Full metadata export/import | **#6** — Metadata-Only | 3 — Full Database | `content=METADATA_ONLY`, `full=Y`, `exclude=STATISTICS` |
-| Baselines/profiles pack-and-ship | **#1** — Table | n/a | `tables=TOURADDNER.baseline_staging_table,TOURADDNER.sqlprof_staging_table`, `table_exists_action=replace` |
+| Baselines/profiles pack-and-ship | **#1** — Table | n/a | `tables=APP_OWNER.baseline_staging_table,APP_OWNER.sqlprof_staging_table`, `table_exists_action=replace` |
 | DDL extraction to SQL file | **#6** — Metadata-Only | 2 — Schema or 3 — Full | `content=METADATA_ONLY`, `include=PROCEDURE,TRIGGER,PACKAGE,PACKAGE_BODY,FUNCTION,TYPE,TYPE_BODY,VIEW,SYNONYM` on export; `sqlfile=` name `include=` in manual impdp parfile |
 | QA/DEV object sync after prod refresh | **#2** — Schema (with data) or **#6** — Metadata-Only (DDL only) | 2 — Schema | `schemas=<QA_SCHEMAS>`; or `network_link=<LINK>` for recovery with no prior export |
 
@@ -831,9 +831,9 @@ datapump.sh (type 6, scope 3)
 **Use Case 2 — Baselines / Profiles**
 
 ```
-SQL: DBMS_SPM.PACK_STGTAB_BASELINE → TOURADDNER.baseline_staging_table
-     DBMS_SQLTUNE.PACK_STGTAB_SQLPROF → TOURADDNER.sqlprof_staging_table
-datapump.sh (type 1, tables=TOURADDNER.baseline_staging_table,TOURADDNER.sqlprof_staging_table)
+SQL: DBMS_SPM.PACK_STGTAB_BASELINE → APP_OWNER.baseline_staging_table
+     DBMS_SQLTUNE.PACK_STGTAB_SQLPROF → APP_OWNER.sqlprof_staging_table
+datapump.sh (type 1, tables=APP_OWNER.baseline_staging_table,APP_OWNER.sqlprof_staging_table)
   └─ datapump_workflow.sh
         ├─ Step 2: expdp SOURCE staging table
         ├─ Step 4: list_dumpfiles.sh

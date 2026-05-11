@@ -168,13 +168,13 @@ Enter PARALLEL degree for impdp (recommended: 32):
 
 ```bash
 # Step 4a: Export from SOURCE database
-expdp aregukumar/$$$$$$$$@sourcdb parfile=RITM1096665/expdp_RITM1096665.par
+expdp db_user/$$$$$$$$@SOURCE_DB parfile=RITM1096665/expdp_RITM1096665.par
 
 # Step 4b: Backup existing objects on TARGET database (run before import)
-expdp aregukumar/$$$$$$$$@targetpdb parfile=RITM1096665/expdp_RITM1096665_BKP.par
+expdp db_user/$$$$$$$$@TARGET_PDB parfile=RITM1096665/expdp_RITM1096665_BKP.par
 
 # Step 4c: Import into TARGET database
-impdp aregukumar/$$$$$$$$@targetpdb parfile=RITM1096665/impdp_RITM1096665.par
+impdp db_user/$$$$$$$$@TARGET_PDB parfile=RITM1096665/impdp_RITM1096665.par
 ```
 
 > **Note:** The BKP export (`expdp_<TICKET>_BKP.par`) should always be run on the **target** database before importing, to capture any existing data that would be overwritten or replaced. This allows rollback if the import needs to be reversed.
@@ -196,7 +196,7 @@ After export, use `get_datapump_logfile.sh` to resolve the full OS path of the l
 ### Example
 
 ```bash
-./get_datapump_logfile.sh EDMQ00QA ./RITM10904787/expdp_RITM10904787.par
+./get_datapump_logfile.sh SOURCE_DB ./RITM10904787/expdp_RITM10904787.par
 ```
 
 **Output:**
@@ -205,14 +205,14 @@ Parfile values detected.
   DIRECTORY : data_pump_dir2
   LOGFILE   : expdp_RITM10904787.log
 
-Querying Oracle directory path from database 'EDMQ00QA' ...
+Querying Oracle directory path from database 'SOURCE_DB' ...
 
-  Database      : EDMQ00QA
+  Database      : SOURCE_DB
   Directory Obj : data_pump_dir2
-  OS Path       : /nfs/xs/repl/ZST-to-DEN
+  OS Path       : /nfs/datapump/export
   Log File      : expdp_RITM10904787.log
 
-  FULL_LOG_PATH : /nfs/xs/repl/ZST-to-DEN/expdp_RITM10904787.log
+  FULL_LOG_PATH : /nfs/datapump/export/expdp_RITM10904787.log
 ```
 
 Copy the **FULL_LOG_PATH** — this is used as the input for all cleanup scripts.
@@ -245,43 +245,43 @@ Optionally override the archive directory:
 ARCHIVE_DIR=/custom/archive/path ./archive_logfile.sh <logfile_path>
 ```
 
-Default archive location: `/export/home/oracle/arvind/log_archive/`
+Default archive location: `/export/home/oracle/scripts/log_archive/`
 
 ### Example — Archive both logs after a job
 
 ```bash
 # Archive the export log
-./archive_logfile.sh /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428.log
+./archive_logfile.sh /nfs/datapump/export/expdp_RITM10874428.log
 
 # Archive the import log
-./archive_logfile.sh /nfs/xs/repl/ZST-to-STG/impdp_RITM10874428.log
+./archive_logfile.sh /nfs/datapump/export/impdp_RITM10874428.log
 ```
 
 **Output:**
 ```
-Copied: /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428.log
-  --> /export/home/oracle/arvind/log_archive/expdp_RITM10874428.log
-Protected: chattr +i applied to /export/home/oracle/arvind/log_archive/expdp_RITM10874428.log
-✔ Archive complete: /export/home/oracle/arvind/log_archive/expdp_RITM10874428.log (immutable)
+Copied: /nfs/datapump/export/expdp_RITM10874428.log
+  --> /export/home/oracle/scripts/log_archive/expdp_RITM10874428.log
+Protected: chattr +i applied to /export/home/oracle/scripts/log_archive/expdp_RITM10874428.log
+✔ Archive complete: /export/home/oracle/scripts/log_archive/expdp_RITM10874428.log (immutable)
 ```
 
 ### Viewing archived logs
 
 ```bash
-ls -lh /export/home/oracle/arvind/log_archive/
+ls -lh /export/home/oracle/scripts/log_archive/
 ```
 
 Confirm immutable flag is set (look for `i` in the flags column):
 ```
-lsattr /export/home/oracle/arvind/log_archive/expdp_RITM10874428.log
-----i--------e-- /export/home/oracle/arvind/log_archive/expdp_RITM10874428.log
+lsattr /export/home/oracle/scripts/log_archive/expdp_RITM10874428.log
+----i--------e-- /export/home/oracle/scripts/log_archive/expdp_RITM10874428.log
 ```
 
 ### Removing an archived log (if ever needed)
 
 ```bash
-sudo chattr -i -- /export/home/oracle/arvind/log_archive/expdp_RITM10874428.log
-rm -f -- /export/home/oracle/arvind/log_archive/expdp_RITM10874428.log
+sudo chattr -i -- /export/home/oracle/scripts/log_archive/expdp_RITM10874428.log
+rm -f -- /export/home/oracle/scripts/log_archive/expdp_RITM10874428.log
 ```
 
 ---
@@ -295,35 +295,35 @@ Use these two scripts to verify what dumpfiles were created before scheduling cl
 Parses the expdp log and prints the paths of all dumpfiles created.
 
 ```bash
-./get_dumpfiles.sh /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428.log
+./get_dumpfiles.sh /nfs/datapump/export/expdp_RITM10874428.log
 ```
 
 **Output:**
 ```
-/nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_01.dmp
-/nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_02.dmp
-/nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_03.dmp
-/nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_04.dmp
+/nfs/datapump/export/expdp_RITM10874428_01.dmp
+/nfs/datapump/export/expdp_RITM10874428_02.dmp
+/nfs/datapump/export/expdp_RITM10874428_03.dmp
+/nfs/datapump/export/expdp_RITM10874428_04.dmp
 ```
 
 You can also point it at a **directory** to scan multiple log files at once:
 
 ```bash
-./get_dumpfiles.sh /nfs/xs/repl/ZST-to-STG/
+./get_dumpfiles.sh /nfs/datapump/export/
 ```
 
 ### `list_dumpfiles.sh` — Lists with file size and timestamp
 
 ```bash
-./list_dumpfiles.sh /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428.log
+./list_dumpfiles.sh /nfs/datapump/export/expdp_RITM10874428.log
 ```
 
 **Output:**
 ```
--rw-r-----  1 oracle asmadmin  6.3G Feb  4 02:06 /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_01.dmp
--rw-r-----  1 oracle asmadmin  136G Feb  4 02:04 /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_02.dmp
--rw-r-----  1 oracle asmadmin  0.8G Feb  4 02:06 /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_03.dmp
--rw-r-----  1 oracle asmadmin       Feb  4 02:06 /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_04.dmp
+-rw-r-----  1 oracle asmadmin  6.3G Feb  4 02:06 /nfs/datapump/export/expdp_RITM10874428_01.dmp
+-rw-r-----  1 oracle asmadmin  136G Feb  4 02:04 /nfs/datapump/export/expdp_RITM10874428_02.dmp
+-rw-r-----  1 oracle asmadmin  0.8G Feb  4 02:06 /nfs/datapump/export/expdp_RITM10874428_03.dmp
+-rw-r-----  1 oracle asmadmin       Feb  4 02:06 /nfs/datapump/export/expdp_RITM10874428_04.dmp
 ```
 
 ---
@@ -335,23 +335,23 @@ Dumpfiles should be removed **after 15 days** (once import is confirmed successf
 ### Option A: Run cleanup manually
 
 ```bash
-./remove_dumpfiles_15d.sh /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428.log
+./remove_dumpfiles_15d.sh /nfs/datapump/export/expdp_RITM10874428.log
 ```
 
 **Output:**
 ```
 === 2026-03-12 02:44:45 | Starting cleanup (>15 days old).  Dry-run: 0
-Removing (older than 15d): /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_01.dmp
-Removing (older than 15d): /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_02.dmp
-Removing (older than 15d): /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_03.dmp
-Removing (older than 15d): /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428_04.dmp
+Removing (older than 15d): /nfs/datapump/export/expdp_RITM10874428_01.dmp
+Removing (older than 15d): /nfs/datapump/export/expdp_RITM10874428_02.dmp
+Removing (older than 15d): /nfs/datapump/export/expdp_RITM10874428_03.dmp
+Removing (older than 15d): /nfs/datapump/export/expdp_RITM10874428_04.dmp
 === 2026-03-12 02:44:45 | Cleanup done.
 ```
 
 #### Dry-run mode (preview without deleting):
 
 ```bash
-DRY_RUN=1 ./remove_dumpfiles_15d.sh /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428.log
+DRY_RUN=1 ./remove_dumpfiles_15d.sh /nfs/datapump/export/expdp_RITM10874428.log
 ```
 
 #### Custom log output location:
@@ -369,23 +369,23 @@ Use `schedule_cleanup_cron_16d.sh` to install a **self-removing, one-shot cron j
 ```
 
 The script will prompt for:
-1. **Full path to the export log file** — e.g. `/nfs/xs/repl/ZST-to-STG/expdp_RITM10874428.log`
+1. **Full path to the export log file** — e.g. `/nfs/datapump/export/expdp_RITM10874428.log`
    (Use `get_datapump_logfile.sh` to resolve this if unknown)
 2. **Time of day to run** — defaults to the current time (HH:MM, 24h)
 
 ```
 [oracle@db-server-01 scripts]$ ./schedule_cleanup_cron_16d.sh
-Enter the full path of the export log file: /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428.log
+Enter the full path of the export log file: /nfs/datapump/export/expdp_RITM10874428.log
 Enter time of day to run (HH:MM, 24h). Default = 02:44: 02:44
-✔  Crontab backed up to: /export/home/oracle/arvind/crontab_backup_20260327_024600.txt
+✔  Crontab backed up to: /export/home/oracle/scripts/crontab_backup_20260327_024600.txt
 
 Add the following entry to your crontab  (run: crontab -e):
 
-44 02 12 04 * /export/home/oracle/arvind/remove_dumpfiles_15d.sh /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428.log > /export/home/oracle/arvind/remove_dumpfiles_expdp_RITM10874428.log 2>&1 && crontab -l | grep -v expdp_RITM10874428.log | crontab -
+44 02 12 04 * /export/home/oracle/scripts/remove_dumpfiles_15d.sh /nfs/datapump/export/expdp_RITM10874428.log > /export/home/oracle/scripts/remove_dumpfiles_expdp_RITM10874428.log 2>&1 && crontab -l | grep -v expdp_RITM10874428.log | crontab -
 
 - Fires once on  : 2026-04-12 at 02:44
-- Cleanup script : /export/home/oracle/arvind/remove_dumpfiles_15d.sh
-- Output log     : /export/home/oracle/arvind/remove_dumpfiles_expdp_RITM10874428.log
+- Cleanup script : /export/home/oracle/scripts/remove_dumpfiles_15d.sh
+- Output log     : /export/home/oracle/scripts/remove_dumpfiles_expdp_RITM10874428.log
 ```
 
 **Key behaviours:**
@@ -403,7 +403,7 @@ Add the following entry to your crontab  (run: crontab -e):
                RITM####/expdp_RITM####_BKP.par  (target backup export)
                RITM####/impdp_RITM####.par       (target import)
 
-2. expdp aregukumar/$$$$$$$$@sourcedb parfile=RITM####/expdp_RITM####.par
+2. expdp db_user/$$$$$$$$@SOURCE_DB parfile=RITM####/expdp_RITM####.par
    └─ Exports data from SOURCE, writes dumpfiles + log to Oracle DIRECTORY (NFS)
 
 3. get_datapump_logfile.sh <DB> RITM####/expdp_RITM####.par
@@ -412,10 +412,10 @@ Add the following entry to your crontab  (run: crontab -e):
 4. list_dumpfiles.sh /nfs/.../expdp_RITM####.log
    └─ Confirm source dumpfiles exist and look correct
 
-5. expdp aregukumar/$$$$$$$$@targetpdb parfile=RITM####/expdp_RITM####_BKP.par
+5. expdp db_user/$$$$$$$$@TARGET_PDB parfile=RITM####/expdp_RITM####_BKP.par
    └─ Backs up existing objects on TARGET before import
 
-6. impdp aregukumar/$$$$$$$$@targetpdb parfile=RITM####/impdp_RITM####.par
+6. impdp db_user/$$$$$$$$@TARGET_PDB parfile=RITM####/impdp_RITM####.par
    └─ Import into TARGET complete
 
 — Run manually after steps 1–6 complete —————————————————
@@ -537,7 +537,7 @@ tail -f ZFS_sync.log
 
 ## Notes
 
-- All scripts must be located in the same directory (e.g. `/export/home/oracle/arvind/`) and called from there, or invoked via their full path.
+- All scripts must be located in the same directory (e.g. `/export/home/oracle/scripts/`) and called from there, or invoked via their full path.
 - `chattr +i` cannot be applied to files on NFS mounts. Always use a local directory for `ARCHIVE_DIR`.
 - For **Network Link** jobs (type 7), no dumpfiles are created — skip Parts 4 and 5.
 - For **Partitioned Table** jobs (type 8), review and execute the `POST-IMPORT STEPS` comment block inside the generated `impdp_<TICKET>.par` before closing the ticket.
