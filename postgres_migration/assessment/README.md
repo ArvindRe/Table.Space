@@ -320,3 +320,9 @@ Senior Oracle DBA | OCP 19c | 15+ Years Enterprise Database Architecture
 
 > *"I manage what your customers are trying to migrate away from — and I built tooling to help them do it right."*
 
+---
+
+## License
+
+MIT — see [LICENSE](../../LICENSE) for details.
+

@@ -24,7 +24,7 @@ log_archive/
 
 # Non-script files — markdown added selectively via negation rules below
 *.md
-!README.md
+!REPO_README.md
 !Advanced_Use_Cases.md
 !Parallel_datapump_runner/Large_Scale_Parallel_Runs.md
 !Parallel_datapump_runner/README.md
