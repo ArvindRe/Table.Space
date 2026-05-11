@@ -9,7 +9,7 @@ Shell script suite for end-to-end Oracle Data Pump orchestration on Exadata. Cov
 | Document | Description |
 |----------|-------------|
 | [Advanced Use Cases](Advanced_Use_Cases.md) | Full metadata exports, SQL Plan Baseline migration, DDL extraction to SQL file, QA/DEV object sync after production refresh |
-| [Parallel Runner — Architecture & Article](Parallel_datapump_runner/ARTICLE.md) | Deep-dive on running 400 export jobs over 72 hours against 400 TB+ Exadata databases — architecture, LOB handling, constraints, and recommendations |
+| [Parallel Runner — Architecture & Article](Parallel_datapump_runner/Large_Scale_Parallel_Runs.md) | Deep-dive on running 400 export jobs over 72 hours against 400 TB+ Exadata databases — architecture, LOB handling, constraints, and recommendations |
 | [Parallel Runner — Usage](Parallel_datapump_runner/README.md) | How to use `run_exports_parallel.sh` and `run_imports_parallel.sh` |
 
 ---
@@ -125,7 +125,7 @@ The script supports 8 job types:
 ### Step 3 — Example: Schema Export
 
 ```
-[oracle@orce01ldb1pd arvind]$ ./datapump.sh
+[oracle@db-server-01 scripts]$ ./datapump.sh
 Enter Ticket Name (example: RJF000123456):
 RITM1000665
 Enter Oracle DIRECTORY name:
@@ -372,7 +372,7 @@ The script will prompt for:
 2. **Time of day to run** — defaults to the current time (HH:MM, 24h)
 
 ```
-[oracle@orce01ldb1pd arvind]$ ./schedule_cleanup_cron_16d.sh
+[oracle@db-server-01 scripts]$ ./schedule_cleanup_cron_16d.sh
 Enter the full path of the export log file: /nfs/xs/repl/ZST-to-STG/expdp_RITM10874428.log
 Enter time of day to run (HH:MM, 24h). Default = 02:44: 02:44
 ✔  Crontab backed up to: /export/home/oracle/arvind/crontab_backup_20260327_024600.txt

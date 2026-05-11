@@ -1,6 +1,6 @@
 #!/bin/bash
 # Test stub for /export/home/oracle/bin/get_pw.sh
-# Deploy to: /export/home/oracle/bin/get_pw.sh on the production server (orce01ldb1pd)
+# Deploy to: /export/home/oracle/bin/get_pw.sh on the Oracle database server
 # Author: Arvind Regukumar
 #
 # Usage: get_pw.sh <DB_NAME> <username>

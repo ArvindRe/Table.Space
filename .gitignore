@@ -26,7 +26,7 @@ log_archive/
 *.md
 !README.md
 !Advanced_Use_Cases.md
-!Parallel_datapump_runner/ARTICLE.md
+!Parallel_datapump_runner/Large_Scale_Parallel_Runs.md
 !Parallel_datapump_runner/README.md
 !Parallel_datapump_runner/learnings.md
 *.txt
