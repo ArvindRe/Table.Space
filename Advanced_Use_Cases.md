@@ -803,6 +803,236 @@ irrelevant (no source export dumpfile).
 
 ---
 
+## Use Case 5 — Exporting and Importing LOB / CLOB Tables
+
+### What it does
+
+Handles large tables containing BasicFile or SecureFile LOB columns, where standard single-job exports are either too slow or inaccurate. Covers identifying LOB storage type, splitting BasicFile LOB tables across concurrent export jobs, converting to SecureFile on import, and resolving the out-of-row LOB statistics problem that causes Data Pump to underestimate table size and skip parallelism.
+
+### Scripts used
+
+| Script | Role |
+|--------|------|
+| `datapump.sh` | Generates the per-slice parfiles (type 5 — Query-Filtered Table) |
+| `run_exports_parallel.sh` | Runs all slice parfiles concurrently |
+
+---
+
+### Step 1 — Identify LOB Storage Type
+
+**Always run this before creating parfiles for any table with LOB columns.**
+
+```sql
+-- Check a specific table
+SELECT owner, table_name, column_name, segment_name, securefile
+FROM   dba_lobs
+WHERE  owner      = '<SCHEMA>'
+  AND  table_name = '<TABLE>';
+
+-- Check all LOBs in a schema
+SELECT owner, table_name, column_name, segment_name, securefile
+FROM   dba_lobs
+WHERE  owner = '<SCHEMA>'
+ORDER BY securefile, table_name;
+```
+
+| `SECUREFILE` value | Storage type | Export approach |
+|--------------------|--------------|-----------------|
+| `NO` | BasicFile | No parallel access — use ROWID/MOD split (multiple concurrent parfiles) |
+| `YES` | SecureFile | Supports native parallel export — standard parfile with `parallel=` |
+
+---
+
+### Step 2 — Export: BasicFile LOB Tables (ROWID/MOD Split)
+
+BasicFile LOBs do not support parallel access. Data Pump assigns only **one worker** to the entire table, making large LOB table exports extremely slow. The fix is to split the table across N concurrent export jobs, each handling a dedicated block-number slice.
+
+#### Generate predicates using ROWID (no primary key needed)
+
+Use `MOD` on the block number to divide rows evenly:
+
+| Job | `query=` predicate |
+|-----|--------------------|
+| Job 0 | `WHERE MOD(dbms_rowid.rowid_block_number(rowid), 4) = 0` |
+| Job 1 | `WHERE MOD(dbms_rowid.rowid_block_number(rowid), 4) = 1` |
+| Job 2 | `WHERE MOD(dbms_rowid.rowid_block_number(rowid), 4) = 2` |
+| Job 3 | `WHERE MOD(dbms_rowid.rowid_block_number(rowid), 4) = 3` |
+
+Increase the modulus to add more concurrent workers.
+
+#### Alternative: split by primary key (faster if available)
+
+| Job | `query=` predicate |
+|-----|--------------------|
+| Job 0 | `WHERE MOD(pk_column, 4) = 0` |
+| Job 1 | `WHERE MOD(pk_column, 4) = 1` |
+| Job 2 | `WHERE MOD(pk_column, 4) = 2` |
+| Job 3 | `WHERE MOD(pk_column, 4) = 3` |
+
+#### Example parfiles (ROWID split, 4 jobs)
+
+```
+# exp_lob_0.par
+job_name=expdp_LOB_TABLE_0
+tables=SCHEMA.LOB_TABLE
+query=SCHEMA.LOB_TABLE:"WHERE MOD(dbms_rowid.rowid_block_number(rowid), 4) = 0"
+directory=DATA_PUMP_DIR1
+dumpfile=expdp_LOB_TABLE_0_%U.dmp
+logfile=expdp_LOB_TABLE_0.log
+parallel=32
+metrics=Y
+logtime=ALL
+compression=ALL
+compression_algorithm=MEDIUM
+exclude=STATISTICS
+cluster=N
+```
+
+Each subsequent parfile changes the serial number in `job_name`, `dumpfile`, `logfile`, and the modulus remainder (0 → 1 → 2 → 3).
+
+#### Run all 4 jobs concurrently
+
+```bash
+# Via the parallel runner (recommended)
+./run_exports_parallel.sh -u db_user -d SOURCE_DB -j 4 \
+    exp_lob_0.par exp_lob_1.par exp_lob_2.par exp_lob_3.par
+
+# Or manually in separate terminals
+expdp db_user/$$$$$$$$@SOURCE_DB parfile=exp_lob_0.par &
+expdp db_user/$$$$$$$$@SOURCE_DB parfile=exp_lob_1.par &
+expdp db_user/$$$$$$$$@SOURCE_DB parfile=exp_lob_2.par &
+expdp db_user/$$$$$$$$@SOURCE_DB parfile=exp_lob_3.par &
+```
+
+The MOD-based split guarantees every row is exported exactly once across all jobs.
+
+---
+
+### Step 3 — Export: SecureFile LOB Tables
+
+SecureFile LOBs support parallel access natively. Use a standard parfile with `parallel=` set — no splitting required.
+
+```
+job_name=expdp_SECURELOB_TABLE
+tables=SCHEMA.SECURELOB_TABLE
+directory=DATA_PUMP_DIR1
+dumpfile=expdp_SECURELOB_TABLE_%U.dmp
+logfile=expdp_SECURELOB_TABLE.log
+parallel=32
+metrics=Y
+logtime=ALL
+compression=ALL
+compression_algorithm=MEDIUM
+exclude=STATISTICS
+cluster=N
+```
+
+Data Pump assigns one worker per table, and if the object exceeds the parallel threshold (default **250 MB**) that worker uses parallel query to unload. If exports still run single-threaded on a large SecureFile table, see the out-of-row LOB statistics problem below.
+
+---
+
+### Step 4 — Import: Convert BasicFile LOBs to SecureFile
+
+**Always convert LOBs to SecureFile during import.** SecureFile supports full parallel access; importing as BasicFile locks you back into the same parallelism constraint.
+
+#### Import 1: first dump (creates table + converts LOB storage)
+
+```bash
+impdp db_user/$$$$$$$$@TARGET_PDB \
+    dumpfile=expdp_LOB_TABLE_0_%U.dmp \
+    logfile=imp_lob_0.log \
+    transform=lob_storage:securefile \
+    parallel=4
+```
+
+`transform=lob_storage:securefile` converts BasicFile LOBs to SecureFile on the fly. This first job also creates the table itself.
+
+#### Import 2–N: remaining dumps in serial (append)
+
+```bash
+impdp db_user/$$$$$$$$@TARGET_PDB \
+    dumpfile=expdp_LOB_TABLE_1_%U.dmp \
+    logfile=imp_lob_1.log \
+    parallel=4 \
+    table_exists_action=append
+
+impdp db_user/$$$$$$$$@TARGET_PDB \
+    dumpfile=expdp_LOB_TABLE_2_%U.dmp \
+    logfile=imp_lob_2.log \
+    parallel=4 \
+    table_exists_action=append
+
+impdp db_user/$$$$$$$$@TARGET_PDB \
+    dumpfile=expdp_LOB_TABLE_3_%U.dmp \
+    logfile=imp_lob_3.log \
+    parallel=4 \
+    table_exists_action=append
+```
+
+Run these **in serial** — each job uses Data Pump native parallelism since the LOB is now SecureFile.
+
+#### Import cautions
+
+- **Postpone index creation** until the last job finishes. Index maintenance on every append is expensive.
+- **Size streams pool** before running multiple concurrent Data Pump sessions (Data Pump uses Advanced Queueing internally):
+  ```sql
+  ALTER SYSTEM SET streams_pool_size=2G SCOPE=MEMORY;
+  ```
+
+---
+
+### Step 5 — The Out-of-Row LOB Statistics Problem
+
+LOBs smaller than 4000 bytes are stored **in-row** (counted in the table segment). LOBs larger than 4000 bytes are stored **out-of-row** in a separate LOB segment. Table statistics in `dba_tab_statistics` reflect only the table segment — not the LOB segment.
+
+**Effect on Data Pump:** a table with 100 rows and 1 TB of out-of-row LOB data looks tiny to the size estimator. Data Pump skips parallel query for that table entirely, regardless of the `parallel=` setting. This also applies per partition on partitioned tables.
+
+#### Fix 1: Apply the 19.23.0 Data Pump bundle patch (best option)
+
+The bug is fixed in the **19.23.0 Data Pump bundle patch**. Always stay current with Data Pump bundle patches.
+
+#### Fix 2: Use `estimate=blocks`
+
+```
+expdp ... estimate=blocks
+```
+
+Forces Data Pump to calculate size from actual blocks rather than statistics. Startup phase takes longer but accurately reflects LOB segment size. **Requires 19.18.0+ with the Data Pump bundle patch** due to a separate bug.
+
+#### Fix 3: Fake statistics (maintenance-window workaround)
+
+```sql
+BEGIN
+  dbms_stats.set_table_stats(
+    ownname  => 'SCHEMA',
+    tabname  => 'LOB_TABLE',
+    numrows  => 10000000,
+    numblks  => 1000000);
+END;
+/
+```
+
+Tricks Data Pump into believing the table is large enough to trigger parallel query. Cautions:
+- Must be done for every table with large out-of-row LOBs
+- Inflated statistics affect optimizer plan choices — only do this in a maintenance window
+- Setting statistics invalidates cursors in the library cache
+- Ensure the automatic stats gathering job does not overwrite the inflated values before the export completes
+
+#### Fix 4: Partition the table
+
+Data Pump assigns one worker per partition or subpartition. More partitions = more parallel workers = faster export. Subject to the same per-partition statistics issue, but the impact is smaller per object.
+
+---
+
+### Notes
+
+- `transform=lob_storage:securefile` applies on import regardless of source LOB type — always include it.
+- The ROWID/MOD split approach requires no knowledge of the table structure or distribution of data.
+- If the modulus is too low and slices are uneven (due to block clustering), increase it (e.g. 8 or 16 concurrent jobs).
+- On partitioned LOB tables, consider using partition-level exports (`include=TABLE_PARTITION`) instead of the ROWID split — Data Pump naturally assigns one worker per partition.
+
+---
+
 ## Quick Reference — Job Type Selection per Use Case
 
 | Use Case | `datapump.sh` Job Type | Scope | Key Parameters |
@@ -811,6 +1041,8 @@ irrelevant (no source export dumpfile).
 | Baselines/profiles pack-and-ship | **#1** — Table | n/a | `tables=APP_OWNER.baseline_staging_table,APP_OWNER.sqlprof_staging_table`, `table_exists_action=replace` |
 | DDL extraction to SQL file | **#6** — Metadata-Only | 2 — Schema or 3 — Full | `content=METADATA_ONLY`, `include=PROCEDURE,TRIGGER,PACKAGE,PACKAGE_BODY,FUNCTION,TYPE,TYPE_BODY,VIEW,SYNONYM` on export; `sqlfile=` name `include=` in manual impdp parfile |
 | QA/DEV object sync after prod refresh | **#2** — Schema (with data) or **#6** — Metadata-Only (DDL only) | 2 — Schema | `schemas=<QA_SCHEMAS>`; or `network_link=<LINK>` for recovery with no prior export |
+| BasicFile LOB table export | **#5** — Query-Filtered Table | 1 — Table | `query=SCHEMA.TABLE:"WHERE MOD(dbms_rowid.rowid_block_number(rowid), N) = K"`, N parfiles run concurrently |
+| SecureFile LOB table export | **#1** — Table | 1 — Table | Standard parfile; `estimate=blocks` if parallel query not triggering |
 
 ---
 
@@ -884,4 +1116,27 @@ RECOVERY PATH (no prior export — network link):
 datapump.sh (type 7 — Network Link)
   └─ datapump_workflow.sh
         └─ Step 6: impdp via network_link (no dumpfile)
+```
+
+**Use Case 5 — LOB / CLOB Table Export and Import**
+
+```
+PRE-EXPORT:
+SQL: dba_lobs → identify BasicFile vs SecureFile storage per table
+
+BasicFile path:
+datapump.sh (type 5 — Query-Filtered Table)  ×N  (one parfile per ROWID slice)
+  └─ run_exports_parallel.sh -j N
+        ├─ expdp slice 0: query="WHERE MOD(dbms_rowid.rowid_block_number(rowid), N) = 0"
+        ├─ expdp slice 1: query="WHERE MOD(..., N) = 1"
+        └─ ... (all N jobs run concurrently)
+
+SecureFile path:
+datapump.sh (type 1 — Table, standard parfile)
+  └─ expdp with parallel=32  (native parallel query kicks in if object > 250 MB)
+     If parallel not triggering → estimate=blocks  or  fake statistics via dbms_stats
+
+IMPORT (both paths):
+  impdp slice 0: transform=lob_storage:securefile  (creates table, converts LOB)
+  impdp slice 1–N: table_exists_action=append      (run in serial)
 ```
