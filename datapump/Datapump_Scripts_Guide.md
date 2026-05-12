@@ -150,6 +150,8 @@ Enter PARALLEL degree for impdp (recommended: 32):
 ✔ EXPDP parfile        : expdp_RITM1000665.par
 ✔ EXPDP BKP parfile    : expdp_RITM1000665_BKP.par
 ✔ IMPDP parfile        : impdp_RITM1000665.par
+✔ IMPDP post parfile   : impdp_RITM1000665_post.par
+✔ IMPDP DDL parfile    : impdp_RITM1000665_ddl.par  (alternative: extract DDL to SQL file)
 ```
 
 ---
@@ -169,7 +171,7 @@ impdp db_user/$$$$$$$$@TARGET_PDB parfile=RITM1096665/impdp_RITM1096665.par
 
 > **Note:** The BKP export (`expdp_<TICKET>_BKP.par`) should always be run on the **target** database before importing, to capture any existing data that would be overwritten or replaced. This allows rollback if the import needs to be reversed.
 
-> **All data imports (job types 1–3, 5, 7, 8):** Indexes, constraints, triggers, and grants are excluded from impdp and rebuilt post-import in parallel. Each generated impdp parfile contains `PRE-IMPORT` and `POST-IMPORT` SQL comment blocks with the exact steps. See [Recommended Import Parameters](#recommended-import-parameters) below.
+> **All data imports (job types 1–3, 5, 7, 8):** Indexes, constraints, triggers, and grants are excluded from the main impdp parfile and re-applied separately via the generated `_post` parfile after validation. Each generated impdp parfile contains `PRE-IMPORT` and `POST-IMPORT` SQL comment blocks. See [Recommended Import Parameters](#recommended-import-parameters) below.
 
 ---
 
@@ -226,16 +228,64 @@ remap_tablespace=REVENUE_DATA:REVENUE_REP_DATA
 #    ALTER DATABASE FORCE LOGGING;
 # 3. Validate imported data:
 #    VALIDATE CHECK LOGICAL DATABASE;
-# 4. Rebuild indexes in parallel, then reset degree:
-#    ALTER INDEX <owner>.<index_name> REBUILD PARALLEL 8;
-#    ALTER INDEX <owner>.<index_name> NOPARALLEL;
-# 5. Enable constraints (NOVALIDATE skips full-table scan on existing rows):
-#    ALTER TABLE <owner>.<table_name> ENABLE NOVALIDATE CONSTRAINT <constraint_name>;
-# 6. Re-enable triggers:
-#    ALTER TRIGGER <owner>.<trigger_name> ENABLE;
-# 7. Re-apply grants:
-#    GRANT <privilege> ON <owner>.<table_name> TO <role_name>;
+# 4. Re-apply indexes, constraints, triggers, and grants via the _post parfile:
+#    ALTER SESSION FORCE PARALLEL DDL PARALLEL 8;
+#    impdp <user>/<pass>@<tns> parfile=impdp_RITM1000665_post.par
+#    (Alternative: use impdp_RITM1000665_ddl.par to extract DDL to SQL first)
 #
+```
+
+**`impdp_RITM1000665_post.par`** — re-applies deferred DDL from the same dumpfile
+```
+#
+# POST-IMPORT DDL parfile — re-applies indexes, constraints, triggers, and grants
+# that were deferred from the main import. The export dumpfile contains full metadata.
+#
+# Run AFTER the main import completes and data validation passes.
+# Pre-requisite — enable parallel DDL in your session before running:
+#   ALTER SESSION FORCE PARALLEL DDL PARALLEL 8;
+#
+job_name=impdp_RITM1000665_post
+schemas=REVENUE_OWNER
+directory=DATA_PUMP_DIR1
+dumpfile=expdp_RITM1000665_%U.dmp
+logfile=impdp_RITM1000665_post.log
+parallel=8
+content=METADATA_ONLY
+include=INDEX,CONSTRAINT,REF_CONSTRAINT,TRIGGER,GRANT
+metrics=Y
+logtime=ALL
+remap_schema=REVENUE_OWNER:CL_NRW:REVENUE_OWNER_CL_VAL
+remap_tablespace=REVENUE_DATA:REVENUE_REP_DATA
+```
+
+**`impdp_RITM1000665_ddl.par`** — alternative: extract DDL to SQL file for per-index parallel control
+```
+#
+# ALTERNATIVE: SQLFILE extraction — use instead of impdp_RITM1000665_post.par when you
+# need per-index parallel DDL control or want to review/edit DDL before applying.
+#
+# Step 1: Run this parfile to extract DDL (does not execute it, writes to DIRECTORY):
+#   impdp <user>/<pass>@<tns> parfile=impdp_RITM1000665_ddl.par
+#
+# Step 2: Apply the extracted SQL with parallel DDL enabled:
+#   sqlplus <user>/<pass>@<tns>
+#   ALTER SESSION FORCE PARALLEL DDL PARALLEL 8;
+#   @<oracle_directory_path>/post_import_RITM1000665.sql
+#   ALTER SESSION DISABLE PARALLEL DDL;
+#
+job_name=impdp_RITM1000665_ddl
+schemas=REVENUE_OWNER
+directory=DATA_PUMP_DIR1
+dumpfile=expdp_RITM1000665_%U.dmp
+logfile=impdp_RITM1000665_ddl.log
+content=METADATA_ONLY
+include=INDEX,CONSTRAINT,REF_CONSTRAINT,TRIGGER,GRANT
+sqlfile=post_import_RITM1000665.sql
+metrics=Y
+logtime=ALL
+remap_schema=REVENUE_OWNER:CL_NRW:REVENUE_OWNER_CL_VAL
+remap_tablespace=REVENUE_DATA:REVENUE_REP_DATA
 ```
 
 ---
@@ -600,9 +650,11 @@ Note: The cron entry self-removes after a successful run (exit code 0).
 
 ```
 1. datapump.sh
-   └─ Creates: RITM####/expdp_RITM####.par     (source export)
-               RITM####/expdp_RITM####_BKP.par  (target backup export)
-               RITM####/impdp_RITM####.par       (target import)
+   └─ Creates: RITM####/expdp_RITM####.par      (source export)
+               RITM####/expdp_RITM####_BKP.par   (target backup export)
+               RITM####/impdp_RITM####.par        (target import — data only)
+               RITM####/impdp_RITM####_post.par   (post-import DDL — indexes, constraints, triggers, grants)
+               RITM####/impdp_RITM####_ddl.par    (alternative: extract DDL to SQL file)
 
 2. expdp aregukumar/$$$$$$$$@sourcedb parfile=RITM####/expdp_RITM####.par
    └─ Exports data from SOURCE, writes dumpfiles + log to Oracle DIRECTORY (NFS)
@@ -617,9 +669,13 @@ Note: The cron entry self-removes after a successful run (exit code 0).
    └─ Backs up existing objects on TARGET before import
 
 6. impdp aregukumar/$$$$$$$$@targetpdb parfile=RITM####/impdp_RITM####.par
-   └─ Import into TARGET complete
+   └─ Import data into TARGET (indexes/constraints/triggers/grants deferred)
 
-— Run manually after steps 1–6 complete —————————————————
+6b. impdp aregukumar/$$$$$$$$@targetpdb parfile=RITM####/impdp_RITM####_post.par
+    └─ Re-apply deferred DDL from same dumpfile; run with ALTER SESSION FORCE PARALLEL DDL first
+    └─ Alternative: use impdp_RITM####_ddl.par to extract DDL to SQL file for per-index control
+
+— Run manually after steps 1–6b complete ————————————————
 
 7. archive_logfile.sh /nfs/.../expdp_RITM####.log
    archive_logfile.sh /nfs/.../expdp_RITM####_BKP.log
@@ -635,7 +691,7 @@ Note: The cron entry self-removes after a successful run (exit code 0).
 
 ## Running the Full Workflow with `datapump_workflow.sh`
 
-`datapump_workflow.sh` is an interactive wrapper that runs steps 1–6 in order. At each step it asks whether to **[P]roceed**, **[S]kip**, or **[E]xit**. For `expdp`/`impdp` steps it offers **[R]un now** (prompts for password securely), **[M]ark as done** (if you already ran it manually), **[S]kip**, or **[E]xit**.
+`datapump_workflow.sh` is an interactive wrapper that runs steps 1–6b in order. At each step it asks whether to **[P]roceed**, **[S]kip**, or **[E]xit**. For `expdp`/`impdp` steps it offers **[R]un now** (prompts for password securely), **[M]ark as done** (if you already ran it manually), **[S]kip**, or **[E]xit**.
 
 > **Note:** Steps 7 (archive logs) and 8 (cron cleanup entry) are currently not included in the wrapper — run them manually using `archive_logfile.sh` and `schedule_cleanup_cron_16d.sh` as described in Parts 3 and 8.
 

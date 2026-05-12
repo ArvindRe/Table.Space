@@ -375,17 +375,39 @@ These are the remaining gaps worth addressing, in priority order:
 
 Capture a single SCN before launching the runner and embed it in every parfile. Without this, a 72-hour, 400-job run produces an internally inconsistent QA/DEV dataset. Pair this with a temporary `UNDO_RETENTION` increase (to 259200 seconds for a 72-hour window) and evaluate guaranteed undo retention if the undo tablespace has sufficient headroom. Monitor undo space continuously during the window — a full undo tablespace with `RETENTION GUARANTEE` active will fail production DML.
 
-### 3. Retry Logic for Failed Jobs
+### 3. Retry Logic for Failed Jobs ✓ Implemented
 
-The current runner logs failures and continues — correct behavior, since a failed job must not block the queue. But manually re-running failures after a 72-hour run is avoidable friction. A `-r N` flag that re-queues failed parfiles up to N times before giving up would cover almost all transient failures (network blips, ORA-12516 connection pool exhaustion, temporary lock contention).
-
-### 4. Checkpointing / Resume Capability
-
-If the runner is killed mid-way (network drop, OS restart), there is no record of which parfiles completed. Adding a checkpoint file — one line appended per completed job — and a `-C` resume flag that skips already-completed parfiles on restart makes a 72-hour window survivable without starting over.
+The runner re-queues failed parfiles up to N times before giving up, covering transient failures (network blips, ORA-12516 connection pool exhaustion, temporary lock contention). Use `-r N` to enable:
 
 ```bash
-# Checkpoint format: one line per successful job
-echo "${parfile}|0|${start_ts}|${end_ts}" >> "${CHECKPOINT_FILE}"
+./run_imports_parallel.sh -u SYSTEM -d PRODDB -j 4 -r 2 /tmp/parfiles/imp_*.par
+```
+
+Failed jobs are re-appended to the internal queue; the worker pool picks them up automatically once a slot is free. Each parfile tracks its own retry count independently. A job that exhausts all attempts is recorded as FAILED in the final summary.
+
+### 4. Checkpointing / Resume Capability ✓ Implemented
+
+Every successful job is appended to a checkpoint file (`<tool>_parallel_<timestamp>.ckpt`) in the `logs/` directory. If the runner is killed mid-way (network drop, OS restart), resume the run with `-C <checkpoint_file>` — already-completed parfiles are skipped and the run continues from where it stopped:
+
+```bash
+# Resume an interrupted run (pass the same parfile glob as the original)
+./run_imports_parallel.sh -u SYSTEM -d PRODDB -j 4 \
+    -C logs/impdp_parallel_20260511_143000.ckpt \
+    /tmp/parfiles/imp_*.par
+```
+
+Checkpoint format — one line appended per successful job:
+
+```
+/path/to/parfile|0|2026-05-11 14:30:00|2026-05-11 16:12:45
+```
+
+A custom checkpoint path can be specified with `-C`; otherwise the path is auto-generated alongside the log file. Both flags can be combined:
+
+```bash
+./run_imports_parallel.sh -u SYSTEM -d PRODDB -j 4 -r 2 \
+    -C logs/impdp_parallel_20260511_143000.ckpt \
+    /tmp/parfiles/imp_*.par
 ```
 
 ### 5. Enable Direct NFS (dNFS)

@@ -371,18 +371,87 @@ PARALLEL_REF="${PARALLEL}"
         echo "#    ALTER DATABASE FORCE LOGGING;"
         echo "# 3. Validate imported data:"
         echo "#    VALIDATE CHECK LOGICAL DATABASE;"
-        echo "# 4. Rebuild indexes in parallel, then reset degree:"
-        echo "#    ALTER INDEX <owner>.<index_name> REBUILD PARALLEL ${PARALLEL_REF};"
-        echo "#    ALTER INDEX <owner>.<index_name> NOPARALLEL;"
-        echo "# 5. Enable constraints (NOVALIDATE skips full-table scan on existing rows):"
-        echo "#    ALTER TABLE <owner>.<table_name> ENABLE NOVALIDATE CONSTRAINT <constraint_name>;"
-        echo "# 6. Re-enable triggers:"
-        echo "#    ALTER TRIGGER <owner>.<trigger_name> ENABLE;"
-        echo "# 7. Re-apply grants:"
-        echo "#    GRANT <privilege> ON <owner>.<table_name> TO <role_name>;"
+        echo "# 4. Re-apply indexes, constraints, triggers, and grants via the _post parfile:"
+        echo "#    ALTER SESSION FORCE PARALLEL DDL PARALLEL ${PARALLEL_REF};"
+        echo "#    impdp <user>/<pass>@<tns> parfile=impdp_${TICKET}_post.par"
+        echo "#    (Alternative: use impdp_${TICKET}_ddl.par to extract DDL to SQL first)"
         echo "#"
     fi
 } > "$IMPFILE"
+
+#
+# IMPDP POST (DDL) PARFILE — re-applies deferred indexes, constraints, triggers, grants
+# The export dumpfile already contains full metadata; exclude= was only on the import side.
+#
+if [[ $IS_DATA_IMP -eq 1 ]]; then
+    IMPFILE_POST="impdp_${TICKET}_post.par"
+    IMPLOG_POST="impdp_${TICKET}_post.log"
+    IMP_POST_JOBNAME="impdp_${TICKET}_post"
+
+    {
+        echo "#"
+        echo "# POST-IMPORT DDL parfile — re-applies indexes, constraints, triggers, and grants"
+        echo "# that were deferred from the main import. The export dumpfile contains full metadata."
+        echo "#"
+        echo "# Run AFTER the main import completes and data validation passes."
+        echo "# Pre-requisite — enable parallel DDL in your session before running:"
+        echo "#   ALTER SESSION FORCE PARALLEL DDL PARALLEL ${PARALLEL_REF};"
+        echo "#"
+        echo "job_name=${IMP_POST_JOBNAME}"
+        echo "$(get_scope_param)"
+        echo "directory=${DIRECTORY}"
+        [[ $JOB_TYPE -ne 7 ]] && echo "dumpfile=${DUMPFILE}"
+        [[ $JOB_TYPE -eq 7 ]] && echo "network_link=${NETWORK_LINK}"
+        echo "logfile=${IMPLOG_POST}"
+        echo "parallel=${PARALLEL_REF}"
+        echo "content=METADATA_ONLY"
+        echo "include=INDEX,CONSTRAINT,REF_CONSTRAINT,TRIGGER,GRANT"
+        echo "metrics=Y"
+        echo "logtime=ALL"
+        [[ -n "$REMAP_TABLE"  ]] && echo "remap_table=${REMAP_TABLE}"
+        [[ -n "$REMAP_TS"     ]] && echo "remap_tablespace=${REMAP_TS}"
+        [[ -n "$REMAP_SCHEMA" ]] && echo "remap_schema=${REMAP_SCHEMA}"
+    } > "$IMPFILE_POST"
+
+    #
+    # IMPDP DDL PARFILE (alternative) — extracts DDL to SQL file instead of executing directly.
+    # Use when you need per-index parallel DDL control or want to review/edit DDL before applying.
+    #
+    IMPFILE_DDL="impdp_${TICKET}_ddl.par"
+    IMPLOG_DDL="impdp_${TICKET}_ddl.log"
+    IMP_DDL_JOBNAME="impdp_${TICKET}_ddl"
+    SQLFILE_NAME="post_import_${TICKET}.sql"
+
+    {
+        echo "#"
+        echo "# ALTERNATIVE: SQLFILE extraction — use instead of ${IMPFILE_POST} when you need"
+        echo "# per-index parallel DDL control or want to review/edit DDL before applying."
+        echo "#"
+        echo "# Step 1: Run this parfile to extract DDL (does not execute it, writes to DIRECTORY):"
+        echo "#   impdp <user>/<pass>@<tns> parfile=${IMPFILE_DDL}"
+        echo "#"
+        echo "# Step 2: Apply the extracted SQL with parallel DDL enabled:"
+        echo "#   sqlplus <user>/<pass>@<tns>"
+        echo "#   ALTER SESSION FORCE PARALLEL DDL PARALLEL ${PARALLEL_REF};"
+        echo "#   @<oracle_directory_path>/${SQLFILE_NAME}"
+        echo "#   ALTER SESSION DISABLE PARALLEL DDL;"
+        echo "#"
+        echo "job_name=${IMP_DDL_JOBNAME}"
+        echo "$(get_scope_param)"
+        echo "directory=${DIRECTORY}"
+        [[ $JOB_TYPE -ne 7 ]] && echo "dumpfile=${DUMPFILE}"
+        [[ $JOB_TYPE -eq 7 ]] && echo "network_link=${NETWORK_LINK}"
+        echo "logfile=${IMPLOG_DDL}"
+        echo "content=METADATA_ONLY"
+        echo "include=INDEX,CONSTRAINT,REF_CONSTRAINT,TRIGGER,GRANT"
+        echo "sqlfile=${SQLFILE_NAME}"
+        echo "metrics=Y"
+        echo "logtime=ALL"
+        [[ -n "$REMAP_TABLE"  ]] && echo "remap_table=${REMAP_TABLE}"
+        [[ -n "$REMAP_TS"     ]] && echo "remap_tablespace=${REMAP_TS}"
+        [[ -n "$REMAP_SCHEMA" ]] && echo "remap_schema=${REMAP_SCHEMA}"
+    } > "$IMPFILE_DDL"
+fi
 
 #
 # Summary
@@ -400,9 +469,17 @@ if [[ $JOB_TYPE -ne 7 ]]; then
     fi
 fi
 echo "✔ IMPDP parfile        : $IMPFILE"
+if [[ $IS_DATA_IMP -eq 1 ]]; then
+    echo "✔ IMPDP post parfile   : $IMPFILE_POST"
+    echo "✔ IMPDP DDL parfile    : $IMPFILE_DDL  (alternative: extract DDL to SQL file)"
+fi
 echo ""
 [[ $JOB_TYPE -eq 7 ]] && echo "ℹ  Network link mode: no dumpfile needed — impdp pulls data directly via DB link '${NETWORK_LINK}'."
-[[ $IS_DATA_IMP -eq 1 ]] && echo "ℹ  PRE/POST-IMPORT SQL blocks are included as comments in $IMPFILE — apply on TARGET before and after impdp."
+if [[ $IS_DATA_IMP -eq 1 ]]; then
+    echo "ℹ  PRE/POST-IMPORT SQL blocks are in $IMPFILE — apply on TARGET before and after impdp."
+    echo "ℹ  Run $IMPFILE_POST after validation to re-apply indexes, constraints, triggers, and grants."
+    echo "ℹ  Run $IMPFILE_DDL instead to extract DDL to SQL file for review or per-index parallel control."
+fi
 [[ $JOB_TYPE -eq 8 ]] && echo "ℹ  Partitioned table: data_options=TRUST_EXISTING_TABLE_PARTITIONS skips row-level partition validation on load."
 echo ""
 echo "ℹ  To inspect or clean up dumpfiles after export, use the centralised scripts:"

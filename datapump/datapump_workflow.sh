@@ -8,14 +8,15 @@
 # Collects required inputs upfront and passes them to each underlying script.
 #
 # Steps:
-#   1. Generate parfiles          (datapump.sh)
-#   2. Run SOURCE export          (expdp)
-#   3. Resolve source log path    (get_datapump_logfile.sh)
-#   4. Inspect dumpfiles          (list_dumpfiles.sh)
-#   5. Run TARGET backup export   (expdp BKP)
-#   6. Run TARGET import          (impdp)
-#   7. Archive log files          (archive_logfile.sh)
-#   8. Schedule dumpfile cleanup  (schedule_cleanup_cron_16d.sh)
+#   1.  Generate parfiles          (datapump.sh)
+#   2.  Run SOURCE export          (expdp)
+#   3.  Resolve source log path    (get_datapump_logfile.sh)
+#   4.  Inspect dumpfiles          (list_dumpfiles.sh)
+#   5.  Run TARGET backup export   (expdp BKP)
+#   6.  Run TARGET import          (impdp)
+#   6b. Run POST-IMPORT DDL        (impdp _post parfile)
+#   7.  Archive log files          (archive_logfile.sh)
+#   8.  Schedule dumpfile cleanup  (schedule_cleanup_cron_16d.sh)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -273,6 +274,8 @@ prompt_default  "Archive directory" \
 PARFILE_SRC="${SCRIPT_DIR}/${TICKET}/expdp_${TICKET}.par"
 PARFILE_BKP="${SCRIPT_DIR}/${TICKET}/expdp_${TICKET}_BKP.par"
 PARFILE_IMP="${SCRIPT_DIR}/${TICKET}/impdp_${TICKET}.par"
+PARFILE_POST="${SCRIPT_DIR}/${TICKET}/impdp_${TICKET}_post.par"
+PARFILE_DDL="${SCRIPT_DIR}/${TICKET}/impdp_${TICKET}_ddl.par"
 SRC_LOG_PATH=""
 BKP_LOG_PATH=""
 IMP_LOG_PATH=""
@@ -396,10 +399,34 @@ if run_dp_cmd impdp "${TARGET_DB}" "${PARFILE_IMP}" "${DB_USER}"; then
     info "  2. ALTER SYSTEM SET DB_BLOCK_CHECKSUM = TYPICAL SCOPE=BOTH;"
     info "  3. ALTER DATABASE FORCE LOGGING;"
     info "  4. VALIDATE CHECK LOGICAL DATABASE;"
-    info "  5. Rebuild excluded indexes with PARALLEL N, then NOPARALLEL"
-    info "  6. ENABLE NOVALIDATE CONSTRAINT for each deferred constraint"
-    info "  7. Re-enable triggers and re-apply grants"
+    info "  5. Re-apply indexes, constraints, triggers, and grants — see Step 6b below"
     info "  (Full SQL in POST-IMPORT comment block inside $(basename "${PARFILE_IMP}"))"
+fi
+
+# =============================================================================
+# STEP 6b — Run POST-IMPORT DDL  (impdp _post parfile)
+# =============================================================================
+
+hdr "6b" "Run POST-IMPORT DDL  (impdp _post parfile)"
+
+if [[ -f "${PARFILE_POST}" ]]; then
+    warn "Before proceeding — enable parallel DDL on the target session:"
+    info "  ALTER SESSION FORCE PARALLEL DDL PARALLEL <n>;"
+    echo ""
+    info "Parfile: ${PARFILE_POST}"
+    if run_dp_cmd impdp "${TARGET_DB}" "${PARFILE_POST}" "${DB_USER}"; then
+        dp_log_entry "${TARGET_DB}" "${DB_USER}" "${DP_LAST_PASS}" \
+            "IMP_POST" "${IMP_LOG_PATH}" "${PARFILE_POST}" \
+            "${DP_LAST_START}" "${DP_LAST_END}" "${DP_LAST_RC}"
+        unset DP_LAST_PASS
+        echo ""
+        info "After _post completes, disable parallel DDL:"
+        info "  ALTER SESSION DISABLE PARALLEL DDL;"
+    fi
+else
+    warn "No _post parfile found at: ${PARFILE_POST}"
+    warn "This step only applies to data imports (types 1-3, 5, 7, 8)."
+    info "Alternatively, use ${PARFILE_DDL} to extract DDL to SQL file for per-index parallel control."
 fi
 
 # =============================================================================
